@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Mail, MessageSquare, Mic, Pencil, Volume2 } from "lucide-react";
+import { AccountGate, signOutMacman, useMacmanSession } from "@/components/account-gate";
 import { UserButton } from "@/lib/auth/gates";
 import { useCurrentUser } from "@/lib/auth/use-current-user";
 import {
@@ -28,13 +29,14 @@ function errorText(error: unknown): string {
 }
 
 export function DeskApp() {
+  const account = useMacmanSession();
   const user = useCurrentUser();
   const [home, setHome] = useState<DeskHome | null>(null);
   const [homeError, setHomeError] = useState<string | null>(null);
   const [view, setView] = useState<View>("home");
 
   useEffect(() => {
-    if (!user?.id) return;
+    if (!account.session || !user?.id) return;
     let cancel = false;
     getDesk()
       .then((next) => {
@@ -46,7 +48,15 @@ export function DeskApp() {
     return () => {
       cancel = true;
     };
-  }, [user?.id]);
+  }, [account.session, user?.id]);
+
+  if (!account.session) {
+    return (
+      <div className="mx-auto flex min-h-screen w-full max-w-lg flex-col bg-ink">
+        <AccountGate>{null}</AccountGate>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-lg flex-col bg-ink">
@@ -147,8 +157,11 @@ function Home({
           );
         })}
       </div>
-      <div className="mt-10 text-sm text-mute">
+      <div className="mt-10 flex items-center justify-between text-sm text-mute">
         <UserButton />
+        <button type="button" onClick={() => void signOutMacman()} className="min-h-11">
+          Sign out
+        </button>
       </div>
     </div>
   );

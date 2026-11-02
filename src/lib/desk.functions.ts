@@ -1,7 +1,16 @@
 import { createServerFn } from "@tanstack/react-start";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { authMiddleware } from "@/lib/auth/middleware";
-import { getSql } from "@/lib/db";
-import { aliasFor } from "@/lib/alias";
+import { supabaseMiddleware } from "@/lib/supabase/middleware";
+import {
+  ensureAlias,
+  insertLine,
+  listChannelLines,
+  readMemory,
+  readVoiceReply,
+  recordUsage,
+  writeMemory,
+} from "@/lib/supabase/desk-store";
 import { CHANNELS, type Channel, type DeskHome, type Line } from "@/lib/desk-types";
 
 const LIMITS: Record<Channel, number> = {
@@ -11,77 +20,16 @@ const LIMITS: Record<Channel, number> = {
   text: 160,
 };
 
+const guards = [authMiddleware, supabaseMiddleware];
+
+type Scope = {
+  supabaseUserId: string;
+  supabaseEmail: string | null;
+  supabase: SupabaseClient;
+};
+
 function isChannel(value: string): value is Channel {
   return (CHANNELS as readonly string[]).includes(value);
-}
-
-async function ensureAlias(userId: string): Promise<string> {
-  const sql = await getSql();
-  const existing = await sql<{ alias: string }>`
-    select alias from desk_profiles where user_id = ${userId}
-  `;
-  if (existing[0]) return existing[0].alias;
-  const alias = aliasFor(userId);
-  await sql`
-    insert into desk_profiles (user_id, alias)
-    values (${userId}, ${alias})
-    on conflict (user_id) do nothing
-  `;
-  const again = await sql<{ alias: string }>`
-    select alias from desk_profiles where user_id = ${userId}
-  `;
-  return again[0]?.alias ?? alias;
-}
-
-async function readMemory(userId: string): Promise<string | null> {
-  const sql = await getSql();
-  const rows = await sql<{ content: string }>`
-    select content from desk_memory where user_id = ${userId}
-  `;
-  return rows[0]?.content ?? null;
-}
-
-async function writeMemory(userId: string, content: string): Promise<string | null> {
-  const trimmed = content.trim().slice(0, 180);
-  if (!trimmed) return readMemory(userId);
-  const sql = await getSql();
-  await sql`
-    insert into desk_memory (user_id, content)
-    values (${userId}, ${trimmed})
-    on conflict (user_id) do update
-      set content = excluded.content, updated_at = now()
-  `;
-  return trimmed;
-}
-
-async function insertLine(
-  userId: string,
-  channel: Channel,
-  role: "person" | "macman",
-  body: string,
-  subject: string | null,
-): Promise<Line> {
-  const sql = await getSql();
-  const id = crypto.randomUUID();
-  const rows = await sql<{
-    id: string;
-    role: "person" | "macman";
-    body: string;
-    subject: string | null;
-    created_at: string;
-  }>`
-    insert into desk_lines (id, user_id, channel, role, body, subject)
-    values (${id}, ${userId}, ${channel}, ${role}, ${body}, ${subject})
-    returning id, role, body, subject, created_at::text as created_at
-  `;
-  const row = rows[0];
-  return {
-    id: row?.id ?? id,
-    role: row?.role ?? role,
-    body: row?.body ?? body,
-    subject: row?.subject ?? subject,
-    createdAt: row?.created_at ?? new Date().toISOString(),
-  };
 }
 
 async function complete(system: string, user: string, maxTokens: number): Promise<string | null> {
@@ -128,24 +76,26 @@ function splitReply(raw: string): { reply: string; memory: string | null } {
   return { reply: reply || "Kept.", memory: memory || null };
 }
 
-async function recentTranscript(userId: string, channel: Channel): Promise<string> {
-  const sql = await getSql();
-  const rows = await sql<{ role: string; body: string }>`
-    select role, body from desk_lines
-    where user_id = ${userId} and channel = ${channel}
-    order by created_at desc
-    limit 6
-  `;
+async function recentTranscript(
+  client: SupabaseClient,
+  userId: string,
+  channel: Channel,
+): Promise<string> {
+  const rows = await listChannelLines(client, userId, channel);
   return rows
-    .reverse()
+    .slice(-6)
     .map((row) => `${row.role === "person" ? "Person" : "Macman"}: ${row.body.slice(0, 400)}`)
     .join("\n");
 }
 
-async function answer(userId: string, channel: "desk" | "voice", body: string) {
-  const memory = await readMemory(userId);
-  const line = await insertLine(userId, channel, "person", body, null);
-  const transcript = await recentTranscript(userId, channel);
+async function answer(scope: Scope, channel: "desk" | "voice", body: string) {
+  const userId = scope.supabaseUserId;
+  const client = scope.supabase;
+  await ensureAlias(client, userId, scope.supabaseEmail);
+  const memory = await readMemory(client);
+  const line = await insertLine(client, userId, channel, "person", body, null);
+  await recordUsage(client, userId, channel);
+  const transcript = await recentTranscript(client, userId, channel);
   const raw = await complete(
     [
       "You are Macman, a private desk for one person.",
@@ -162,87 +112,63 @@ async function answer(userId: string, channel: "desk" | "voice", body: string) {
     return { line, reply: null as Line | null, memory };
   }
   const parsed = splitReply(raw);
-  const reply = await insertLine(userId, channel, "macman", parsed.reply, null);
-  const next = parsed.memory ? await writeMemory(userId, parsed.memory) : memory;
+  const reply = await insertLine(client, userId, channel, "macman", parsed.reply, null);
+  const next = parsed.memory ? await writeMemory(client, userId, channel, parsed.memory) : memory;
   return { line, reply, memory: next };
 }
 
-async function foldMemory(userId: string, kind: string, text: string) {
-  const previous = await readMemory(userId);
+async function foldMemory(scope: Scope, channel: Channel, kind: string, text: string) {
+  const previous = await readMemory(scope.supabase);
   const raw = await complete(
     "Write one sentence under 140 characters. It is the single memory a private desk should keep. Fold the previous memory with the new note. Do not invent facts. No prefix, no quotes.",
     `Previous memory: ${previous ?? "none yet"}\nNew ${kind}: ${text.slice(0, 500)}`,
     80,
   );
-  if (!raw) return writeMemory(userId, text.slice(0, 140));
-  return writeMemory(userId, raw.replace(/^memory:\s*/i, ""));
+  const next = raw ? raw.replace(/^memory:\s*/i, "") : text.slice(0, 140);
+  return writeMemory(scope.supabase, scope.supabaseUserId, channel, next);
 }
 
 export const getDesk = createServerFn({ method: "GET" })
-  .middleware([authMiddleware])
+  .middleware(guards)
   .handler(async ({ context }): Promise<DeskHome> => {
-    const alias = await ensureAlias(context.userId);
-    const memory = await readMemory(context.userId);
+    const scope = context as unknown as Scope;
+    const alias = await ensureAlias(scope.supabase, scope.supabaseUserId, scope.supabaseEmail);
+    const memory = await readMemory(scope.supabase);
     return { alias, memory };
   });
 
 export const listLines = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware(guards)
   .validator((input: { channel: string }) => {
     if (!input || !isChannel(input.channel)) throw new Error("Unknown line.");
     return { channel: input.channel };
   })
   .handler(async ({ context, data }): Promise<Line[]> => {
-    await ensureAlias(context.userId);
-    const sql = await getSql();
-    const rows = await sql<{
-      id: string;
-      role: "person" | "macman";
-      body: string;
-      subject: string | null;
-      created_at: string;
-    }>`
-      select id, role, body, subject, created_at::text as created_at
-      from desk_lines
-      where user_id = ${context.userId} and channel = ${data.channel}
-      order by created_at asc
-      limit 80
-    `;
-    return rows.map((row) => ({
-      id: row.id,
-      role: row.role,
-      body: row.body,
-      subject: row.subject,
-      createdAt: row.created_at,
-    }));
+    const scope = context as unknown as Scope;
+    await ensureAlias(scope.supabase, scope.supabaseUserId, scope.supabaseEmail);
+    return listChannelLines(scope.supabase, scope.supabaseUserId, data.channel);
   });
 
 export const sendDesk = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware(guards)
   .validator((input: { body: string }) => {
     const body = input?.body?.trim() ?? "";
     if (!body || body.length > LIMITS.desk) throw new Error("Write a shorter line.");
     return { body };
   })
-  .handler(async ({ context, data }) => {
-    await ensureAlias(context.userId);
-    return answer(context.userId, "desk", data.body);
-  });
+  .handler(async ({ context, data }) => answer(context as unknown as Scope, "desk", data.body));
 
 export const sendVoice = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware(guards)
   .validator((input: { body: string }) => {
     const body = input?.body?.trim() ?? "";
     if (!body || body.length > LIMITS.voice) throw new Error("Say a shorter line.");
     return { body };
   })
-  .handler(async ({ context, data }) => {
-    await ensureAlias(context.userId);
-    return answer(context.userId, "voice", data.body);
-  });
+  .handler(async ({ context, data }) => answer(context as unknown as Scope, "voice", data.body));
 
 export const saveMail = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware(guards)
   .validator((input: { subject: string; body: string }) => {
     const body = input?.body?.trim() ?? "";
     const subject = (input?.subject ?? "").trim().slice(0, 120);
@@ -250,53 +176,54 @@ export const saveMail = createServerFn({ method: "POST" })
     return { subject: subject || "Letter", body };
   })
   .handler(async ({ context, data }) => {
-    await ensureAlias(context.userId);
+    const scope = context as unknown as Scope;
+    await ensureAlias(scope.supabase, scope.supabaseUserId, scope.supabaseEmail);
     const line = await insertLine(
-      context.userId,
+      scope.supabase,
+      scope.supabaseUserId,
       "mail",
       "person",
       data.body,
       data.subject,
     );
-    const memory = await foldMemory(
-      context.userId,
-      "letter",
-      `${data.subject}. ${data.body}`,
-    );
+    await recordUsage(scope.supabase, scope.supabaseUserId, "mail");
+    const memory = await foldMemory(scope, "mail", "letter", `${data.subject}. ${data.body}`);
     return { line, memory };
   });
 
 export const saveText = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware(guards)
   .validator((input: { body: string }) => {
     const body = input?.body?.trim() ?? "";
     if (!body || body.length > LIMITS.text) throw new Error("Keep it to one short line.");
     return { body };
   })
   .handler(async ({ context, data }) => {
-    await ensureAlias(context.userId);
-    const line = await insertLine(context.userId, "text", "person", data.body, null);
-    const memory = await foldMemory(context.userId, "text", data.body);
+    const scope = context as unknown as Scope;
+    await ensureAlias(scope.supabase, scope.supabaseUserId, scope.supabaseEmail);
+    const line = await insertLine(
+      scope.supabase,
+      scope.supabaseUserId,
+      "text",
+      "person",
+      data.body,
+      null,
+    );
+    await recordUsage(scope.supabase, scope.supabaseUserId, "text");
+    const memory = await foldMemory(scope, "text", "text", data.body);
     return { line, memory };
   });
 
 export const hearLine = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware(guards)
   .validator((input: { lineId: string }) => {
     const lineId = input?.lineId?.trim() ?? "";
     if (!lineId || lineId.length > 80) throw new Error("Nothing to hear.");
     return { lineId };
   })
   .handler(async ({ context, data }) => {
-    const sql = await getSql();
-    const rows = await sql<{ body: string }>`
-      select body from desk_lines
-      where id = ${data.lineId}
-        and user_id = ${context.userId}
-        and channel = 'voice'
-        and role = 'macman'
-    `;
-    const text = rows[0]?.body?.slice(0, 600);
+    const scope = context as unknown as Scope;
+    const text = await readVoiceReply(scope.supabase, scope.supabaseUserId, data.lineId);
     if (!text) return { ok: false as const, error: "Nothing to hear." };
     const apiKey = process.env.XAI_API_KEY;
     if (!apiKey) return { ok: false as const, error: "Voice is not available right now." };
