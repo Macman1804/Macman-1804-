@@ -290,24 +290,12 @@ export function VoiceCall({
           ? "Hearing you. Pause, or tap Send what I said."
           : phase === "listening"
             ? "Listening. Speak, then pause."
-            : `${PHASE_LABEL[phase]}.`}{" "}
+            : phase === "muted"
+              ? "Muted. Tap Unmute to speak again."
+              : `${PHASE_LABEL[phase]}.`}{" "}
         Your microphone stays on this device. This is not a phone call.
       </p>
       {heard ? <p className="mt-3 text-base leading-relaxed text-cream">Heard: {heard}</p> : null}
-      <label className="mt-3 block text-sm text-mute">
-        Voice
-        <select
-          value={voice}
-          onChange={(event) => choose(voiceId(event.target.value))}
-          className="mt-1 min-h-12 w-full rounded-2xl border border-edge bg-card px-4 text-base text-cream"
-        >
-          {VOICES.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.label} — {item.tone}
-            </option>
-          ))}
-        </select>
-      </label>
       <div className="mt-3 flex gap-2">
         {phase === "idle" ? (
           <button
@@ -348,6 +336,20 @@ export function VoiceCall({
           Send what I said
         </button>
       ) : null}
+      <label className="mt-3 block text-sm text-mute">
+        Voice
+        <select
+          value={voice}
+          onChange={(event) => choose(voiceId(event.target.value))}
+          className="mt-1 min-h-12 w-full rounded-2xl border border-edge bg-card px-4 text-base text-cream"
+        >
+          {VOICES.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.label} — {item.tone}
+            </option>
+          ))}
+        </select>
+      </label>
       <form
         className="mt-3"
         onSubmit={(event) => {

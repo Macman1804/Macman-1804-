@@ -333,7 +333,10 @@ function ChannelView({
         const done = () => resolve();
         audio.onended = done;
         audio.onpause = done;
-        void audio.play().catch(done);
+        void audio.play().catch(() => {
+          setNote("Tap Hear it to play that reply.");
+          done();
+        });
       });
     } catch (error) {
       setNote(errorText(error));

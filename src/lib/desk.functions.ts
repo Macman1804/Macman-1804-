@@ -115,12 +115,20 @@ async function answer(scope: Scope, channel: "desk" | "voice", body: string) {
   const earlierText = earlier
     .map((item) => `${item.channel} ${item.role === "person" ? "Person" : "Macman"}: ${item.body.slice(0, 240)}`)
     .join("\n");
+  const clock = new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    timeZone: "America/New_York",
+  }).format(new Date());
   const raw = await complete(
     [
       "You are Macman, a private desk for one person.",
       "Reply in two short sentences, plain and warm. No lists, no markdown, no sign-off.",
-      "Use the saved memories and earlier lines when they answer the person. Do not invent facts they did not give you.",
-      "If the memories and lines do not contain the fact, say you do not have it yet.",
+      `Today is ${clock}, Eastern Time. You may answer with that date. Do not store the date as a memory.`,
+      "Use the saved memories and earlier lines for personal facts. Do not invent personal facts they did not give you.",
+      "If a personal fact is not in the memories or earlier lines, say you do not have it yet.",
       "Then a final line that starts with MEMORY: and one sentence under 140 characters.",
       "That sentence is the single memory to keep, folding the saved memories with anything new.",
       `Saved memories:\n${memoryText}`,
