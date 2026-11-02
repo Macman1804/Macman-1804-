@@ -250,6 +250,42 @@ export const saveText = createServerFn({ method: "POST" })
     return { line, memory, memories: await listMemories(scope.supabase) };
   });
 
+const AUDIO_TYPES = new Set(["audio/webm", "audio/mp4", "audio/ogg", "audio/mpeg", "audio/wav", "audio/x-m4a"]);
+
+export const transcribeSpeech = createServerFn({ method: "POST" })
+  .middleware(guards)
+  .validator((input: { audio: string; mime?: string }) => {
+    const audio = input?.audio?.trim() ?? "";
+    const mime = (input?.mime ?? "audio/webm").split(";")[0].trim().toLowerCase();
+    if (!AUDIO_TYPES.has(mime)) throw new Error("That recording format is not supported.");
+    if (!audio || audio.length > 1_500_000) throw new Error("That recording is too long. Speak a shorter line.");
+    return { audio, mime };
+  })
+  .handler(async ({ data }) => {
+    const apiKey = process.env.XAI_API_KEY;
+    if (!apiKey) return { ok: false as const, error: "Transcription is not available right now." };
+    try {
+      const bytes = Buffer.from(data.audio, "base64");
+      const ext = data.mime.includes("mp4") || data.mime.includes("m4a") ? "m4a" : data.mime.includes("ogg") ? "ogg" : data.mime.includes("wav") ? "wav" : "webm";
+      const form = new FormData();
+      form.append("language", "en");
+      form.append("file", new File([bytes], `line.${ext}`, { type: data.mime }));
+      const res = await fetch("https://api.x.ai/v1/stt", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(25000),
+        body: form,
+      });
+      if (!res.ok) return { ok: false as const, error: "Transcription failed. Speak the line again." };
+      const body = (await res.json()) as { text?: string };
+      const text = body.text?.trim() ?? "";
+      if (!text) return { ok: false as const, error: "No words were recognized. Speak a little closer and try again." };
+      return { ok: true as const, text };
+    } catch {
+      return { ok: false as const, error: "Transcription failed. Speak the line again." };
+    }
+  });
+
 export const hearLine = createServerFn({ method: "POST" })
   .middleware(guards)
   .validator((input: { lineId: string; voiceId?: string }) => {

@@ -1,18 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Mic, MicOff, PhoneOff } from "lucide-react";
+import { transcribeSpeech } from "@/lib/desk.functions";
 import { reduceCall, type CallPhase } from "@/lib/voice/call-machine";
+import { MIN_BYTES, nextUtterance } from "@/lib/voice/utterance";
 import { VOICES, voiceId, type VoiceId } from "@/lib/voice/voices";
 import { telephoneLine } from "@/lib/telephony/line";
-
-type SpeechRec = {
-  lang: string;
-  interimResults: boolean;
-  start: () => void;
-  stop: () => void;
-  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-  onerror: (() => void) | null;
-  onend: (() => void) | null;
-};
 
 const PHASE_LABEL: Record<CallPhase, string> = {
   idle: "Browser call is ready",
@@ -21,6 +13,14 @@ const PHASE_LABEL: Record<CallPhase, string> = {
   speaking: "Speaking",
   muted: "Muted",
 };
+
+function recorderMime(): string {
+  if (typeof MediaRecorder === "undefined") return "";
+  if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) return "audio/webm;codecs=opus";
+  if (MediaRecorder.isTypeSupported("audio/webm")) return "audio/webm";
+  if (MediaRecorder.isTypeSupported("audio/mp4")) return "audio/mp4";
+  return "";
+}
 
 export function VoiceCall({
   busy,
@@ -37,13 +37,20 @@ export function VoiceCall({
   const [phase, setPhaseState] = useState<CallPhase>("idle");
   const [voice, setVoice] = useState<VoiceId>("eve");
   const [note, setNote] = useState<string | null>(null);
+  const [heard, setHeard] = useState("");
   const [draft, setDraft] = useState("");
   const phaseRef = useRef<CallPhase>("idle");
   const live = useRef(false);
   const muted = useRef(false);
   const taking = useRef(false);
-  const recogRef = useRef<SpeechRec | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const audioRef = useRef<AudioContext | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const timerRef = useRef<number | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const speechRef = useRef({ heard: false, quietMs: 0, bytes: 0 });
+  const flushRef = useRef(false);
 
   useEffect(() => {
     setVoice(voiceId(window.localStorage.getItem("macman-voice")));
@@ -58,59 +65,121 @@ export function VoiceCall({
     setPhase(reduceCall(phaseRef.current, event));
   }
 
-  function stopRecog() {
-    const recog = recogRef.current;
-    recogRef.current = null;
-    try {
-      recog?.stop();
-    } catch {
-      /* already stopped */
-    }
+  function stopTimer() {
+    if (timerRef.current !== null) window.clearInterval(timerRef.current);
+    timerRef.current = null;
+  }
+
+  function stopRecorder() {
+    const recorder = recorderRef.current;
+    recorderRef.current = null;
+    if (recorder && recorder.state !== "inactive") recorder.stop();
   }
 
   function releaseMic() {
+    stopTimer();
+    stopRecorder();
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
+    void audioRef.current?.close();
+    audioRef.current = null;
   }
 
-  function listen() {
-    if (!live.current || muted.current || taking.current) return;
-    const Recognition = (
-      window as Window & {
-        SpeechRecognition?: new () => SpeechRec;
-        webkitSpeechRecognition?: new () => SpeechRec;
-      }
-    ).SpeechRecognition ??
-      (window as Window & { webkitSpeechRecognition?: new () => SpeechRec }).webkitSpeechRecognition;
-    if (!Recognition) {
-      setNote("This browser cannot turn speech into text. Type the line instead.");
+  function beginRecording() {
+    if (!live.current || muted.current || taking.current || !streamRef.current) return;
+    if (typeof MediaRecorder === "undefined") {
+      setNote("This phone cannot record audio for transcription. Type the line instead.");
       return;
     }
-    const recog = new Recognition();
-    recog.lang = "en";
-    recog.interimResults = false;
-    recog.onresult = (event) => {
-      const said = event.results[0]?.[0]?.transcript?.trim() ?? "";
-      if (said) void turn(said);
-    };
-    recog.onerror = () => {
-      if (live.current) setNote("Could not hear that. The call is still open.");
-    };
-    recog.onend = () => {
-      if (recogRef.current === recog && live.current && !muted.current && !taking.current) listen();
-    };
-    recogRef.current = recog;
+    const mime = recorderMime();
+    let recorder: MediaRecorder;
     try {
-      recog.start();
+      recorder = new MediaRecorder(streamRef.current, mime ? { mimeType: mime } : undefined);
     } catch {
-      setNote("Could not start listening. Type the line instead.");
+      setNote("This phone cannot record audio for transcription. Type the line instead.");
+      return;
     }
+    chunksRef.current = [];
+    speechRef.current = { heard: false, quietMs: 0, bytes: 0 };
+    recorder.ondataavailable = (event) => {
+      if (!event.data.size) return;
+      chunksRef.current.push(event.data);
+      speechRef.current.bytes += event.data.size;
+    };
+    recorder.onstop = () => {
+      const blob = new Blob(chunksRef.current, { type: recorder.mimeType || mime || "audio/webm" });
+      chunksRef.current = [];
+      if (!flushRef.current) return;
+      flushRef.current = false;
+      void finishRecording(blob);
+    };
+    recorderRef.current = recorder;
+    recorder.start(200);
+  }
+
+  async function finishRecording(blob: Blob) {
+    if (!live.current || muted.current) return;
+    if (blob.size < MIN_BYTES) {
+      setNote("No words were captured. Speak a little closer and try again.");
+      resumeListening();
+      return;
+    }
+    setHeard("Transcribing…");
+    setNote(null);
+    try {
+      const audio = await blobToBase64(blob);
+      const result = await transcribeSpeech({ data: { audio, mime: blob.type } });
+      if (!live.current) return;
+      if (!result.ok) {
+        setHeard("");
+        setNote(result.error);
+        resumeListening();
+        return;
+      }
+      setHeard(result.text);
+      await turn(result.text);
+    } catch (error) {
+      setHeard("");
+      setNote(error instanceof Error && error.message ? error.message : "Transcription failed. Speak the line again.");
+      resumeListening();
+    }
+  }
+
+  function resumeListening() {
+    taking.current = false;
+    if (live.current && !muted.current) beginRecording();
+  }
+
+  function watchLevel(analyser: AnalyserNode) {
+    const samples = new Uint8Array(analyser.fftSize);
+    stopTimer();
+    timerRef.current = window.setInterval(() => {
+      if (!live.current || muted.current || taking.current) return;
+      analyser.getByteTimeDomainData(samples);
+      let sum = 0;
+      for (const value of samples) {
+        const sample = (value - 128) / 128;
+        sum += sample * sample;
+      }
+      const level = Math.sqrt(sum / samples.length);
+      const next = nextUtterance({ ...speechRef.current, level, frameMs: 100 });
+      speechRef.current = { heard: next.heard, quietMs: next.quietMs, bytes: speechRef.current.bytes };
+      if (next.action === "wait") return;
+      flushRef.current = true;
+      taking.current = true;
+      const recorder = recorderRef.current;
+      if (recorder && recorder.state !== "inactive") recorder.stop();
+      else {
+        flushRef.current = false;
+        taking.current = false;
+      }
+    }, 100);
   }
 
   async function turn(said: string) {
-    if (taking.current) return;
+    if (!said.trim()) return;
     taking.current = true;
-    stopRecog();
+    stopRecorder();
     apply({ type: "heard" });
     setNote(null);
     try {
@@ -129,24 +198,34 @@ export function VoiceCall({
       else setPhase("listening");
     } finally {
       taking.current = false;
-      if (live.current && !muted.current) listen();
+      if (live.current && !muted.current) beginRecording();
     }
   }
 
   async function start() {
     if (phaseRef.current !== "idle") return;
     setNote(null);
+    setHeard("");
     try {
-      streamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const context = new AudioContext();
+      await context.resume();
+      audioRef.current = context;
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 512;
+      analyserRef.current = analyser;
+      context.createMediaStreamSource(stream).connect(analyser);
+      live.current = true;
+      muted.current = false;
+      apply({ type: "start" });
+      beginRecording();
+      watchLevel(analyser);
     } catch {
+      releaseMic();
       apply({ type: "denied" });
       setNote("The microphone was not allowed. You can still type a line.");
-      return;
     }
-    live.current = true;
-    muted.current = false;
-    apply({ type: "start" });
-    listen();
   }
 
   function mute() {
@@ -155,7 +234,8 @@ export function VoiceCall({
     streamRef.current?.getTracks().forEach((track) => {
       track.enabled = false;
     });
-    stopRecog();
+    stopTimer();
+    stopRecorder();
     onStop();
     apply({ type: "mute" });
   }
@@ -167,14 +247,16 @@ export function VoiceCall({
       track.enabled = true;
     });
     apply({ type: "unmute" });
-    listen();
+    if (analyserRef.current) {
+      beginRecording();
+      watchLevel(analyserRef.current);
+    }
   }
 
   function end() {
     live.current = false;
     muted.current = false;
     taking.current = false;
-    stopRecog();
     releaseMic();
     onStop();
     apply({ type: "end" });
@@ -193,6 +275,7 @@ export function VoiceCall({
       <p className="mt-2 text-sm leading-relaxed text-mute">
         {PHASE_LABEL[phase]}. Your microphone stays on this device. This is not a phone call.
       </p>
+      {heard ? <p className="mt-3 text-base leading-relaxed text-cream">Heard: {heard}</p> : null}
       <label className="mt-3 block text-sm text-mute">
         Voice
         <select
@@ -221,7 +304,7 @@ export function VoiceCall({
           <>
             <button
               type="button"
-              onClick={muted.current || phase === "muted" ? unmute : mute}
+              onClick={phase === "muted" ? unmute : mute}
               className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-full border border-copper px-4 text-sm text-copper"
             >
               <MicOff className="size-4" />
@@ -245,6 +328,7 @@ export function VoiceCall({
           const body = draft.trim();
           if (!body || busy) return;
           setDraft("");
+          setHeard(body);
           void turn(body);
         }}
       >
@@ -264,7 +348,7 @@ export function VoiceCall({
           Ask the desk
         </button>
       </form>
-      {note ? <p className="mt-3 text-sm text-mute">{note}</p> : null}
+      {note ? <p className="mt-3 text-sm leading-relaxed text-copper">{note}</p> : null}
       <div className="mt-4 rounded-2xl border border-edge bg-card px-4 py-3">
         <p className="text-xs font-medium tracking-widest text-copper uppercase">Telephone</p>
         <p className="mt-2 text-sm leading-relaxed text-mute">
@@ -273,4 +357,16 @@ export function VoiceCall({
       </div>
     </div>
   );
+}
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const value = String(reader.result ?? "");
+      resolve(value.slice(value.indexOf(",") + 1));
+    };
+    reader.onerror = () => reject(new Error("The recording could not be read."));
+    reader.readAsDataURL(blob);
+  });
 }

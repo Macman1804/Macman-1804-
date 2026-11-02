@@ -329,7 +329,12 @@ function ChannelView({
       const src = "url" in result && result.url ? result.url : `data:audio/mpeg;base64,${result.audio}`;
       const audio = new Audio(src);
       audioRef.current = audio;
-      await audio.play();
+      await new Promise<void>((resolve) => {
+        const done = () => resolve();
+        audio.onended = done;
+        audio.onpause = done;
+        void audio.play().catch(done);
+      });
     } catch (error) {
       setNote(errorText(error));
     } finally {
