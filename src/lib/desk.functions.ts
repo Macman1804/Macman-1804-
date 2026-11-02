@@ -3,14 +3,17 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabaseMiddleware } from "@/lib/supabase/middleware";
 import {
   ensureAlias,
+  forgetMemory,
   insertLine,
   listChannelLines,
+  listMemories,
   readMemory,
   readVoiceReply,
   recordUsage,
   writeMemory,
 } from "@/lib/supabase/desk-store";
-import { CHANNELS, type Channel, type DeskHome, type Line } from "@/lib/desk-types";
+import { pickRelevant, type PastLine } from "@/lib/supabase/memory-context";
+import { CHANNELS, type Channel, type DeskHome, type Line, type SavedMemory } from "@/lib/desk-types";
 
 const LIMITS: Record<Channel, number> = {
   desk: 2000,
@@ -87,33 +90,52 @@ async function recentTranscript(
     .join("\n");
 }
 
+async function earlierLines(client: SupabaseClient, userId: string, channel: Channel): Promise<PastLine[]> {
+  const others = CHANNELS.filter((item) => item !== channel);
+  const groups = await Promise.all(
+    others.map(async (item) => {
+      const rows = await listChannelLines(client, userId, item);
+      return rows.slice(-8).map((row) => ({ channel: item, role: row.role, body: row.body }));
+    }),
+  );
+  return groups.flat();
+}
+
 async function answer(scope: Scope, channel: "desk" | "voice", body: string) {
   const userId = scope.supabaseUserId;
   const client = scope.supabase;
   await ensureAlias(client, userId, scope.supabaseEmail);
-  const memory = await readMemory(client);
+  const memories = await listMemories(client);
   const line = await insertLine(client, userId, channel, "person", body, null);
   await recordUsage(client, userId, channel);
   const transcript = await recentTranscript(client, userId, channel);
+  const earlier = pickRelevant(await earlierLines(client, userId, channel), body);
+  const memoryText = memories.map((item) => item.content).join("\n") || "none yet";
+  const earlierText = earlier
+    .map((item) => `${item.channel} ${item.role === "person" ? "Person" : "Macman"}: ${item.body.slice(0, 240)}`)
+    .join("\n");
   const raw = await complete(
     [
       "You are Macman, a private desk for one person.",
       "Reply in two short sentences, plain and warm. No lists, no markdown, no sign-off.",
+      "Use the saved memories and earlier lines when they answer the person. Do not invent facts they did not give you.",
+      "If the memories and lines do not contain the fact, say you do not have it yet.",
       "Then a final line that starts with MEMORY: and one sentence under 140 characters.",
-      "That sentence is the single memory to keep, folding the previous memory with anything new.",
-      "Do not invent facts the person did not give you.",
-      `Previous memory: ${memory ?? "none yet"}`,
+      "That sentence is the single memory to keep, folding the saved memories with anything new.",
+      `Saved memories:\n${memoryText}`,
+      earlierText ? `Earlier lines from other channels:\n${earlierText}` : "Earlier lines from other channels: none yet",
     ].join(" "),
     `Channel: ${channel}\n${transcript || `Person: ${body}`}`,
     220,
   );
   if (!raw) {
-    return { line, reply: null as Line | null, memory };
+    return { line, reply: null as Line | null, memory: memories[0]?.content ?? null, memories };
   }
   const parsed = splitReply(raw);
   const reply = await insertLine(client, userId, channel, "macman", parsed.reply, null);
-  const next = parsed.memory ? await writeMemory(client, userId, channel, parsed.memory) : memory;
-  return { line, reply, memory: next };
+  const next = parsed.memory ? await writeMemory(client, userId, channel, parsed.memory) : memories[0]?.content ?? null;
+  const saved = await listMemories(client);
+  return { line, reply, memory: next, memories: saved };
 }
 
 async function foldMemory(scope: Scope, channel: Channel, kind: string, text: string) {
@@ -133,7 +155,8 @@ export const getDesk = createServerFn({ method: "GET" })
     const scope = context as unknown as Scope;
     const alias = await ensureAlias(scope.supabase, scope.supabaseUserId, scope.supabaseEmail);
     const memory = await readMemory(scope.supabase);
-    return { alias, memory };
+    const memories = await listMemories(scope.supabase);
+    return { alias, memory, memories };
   });
 
 export const listLines = createServerFn({ method: "POST" })
@@ -146,6 +169,19 @@ export const listLines = createServerFn({ method: "POST" })
     const scope = context as unknown as Scope;
     await ensureAlias(scope.supabase, scope.supabaseUserId, scope.supabaseEmail);
     return listChannelLines(scope.supabase, scope.supabaseUserId, data.channel);
+  });
+
+export const forgetSavedMemory = createServerFn({ method: "POST" })
+  .middleware(guards)
+  .validator((input: { id: string }) => {
+    const id = input?.id?.trim() ?? "";
+    if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error("That memory is already gone.");
+    return { id };
+  })
+  .handler(async ({ context, data }): Promise<SavedMemory[]> => {
+    const scope = context as unknown as Scope;
+    await forgetMemory(scope.supabase, scope.supabaseUserId, data.id);
+    return listMemories(scope.supabase);
   });
 
 export const sendDesk = createServerFn({ method: "POST" })
@@ -187,7 +223,7 @@ export const saveMail = createServerFn({ method: "POST" })
     );
     await recordUsage(scope.supabase, scope.supabaseUserId, "mail");
     const memory = await foldMemory(scope, "mail", "letter", `${data.subject}. ${data.body}`);
-    return { line, memory };
+    return { line, memory, memories: await listMemories(scope.supabase) };
   });
 
 export const saveText = createServerFn({ method: "POST" })
@@ -210,7 +246,7 @@ export const saveText = createServerFn({ method: "POST" })
     );
     await recordUsage(scope.supabase, scope.supabaseUserId, "text");
     const memory = await foldMemory(scope, "text", "text", data.body);
-    return { line, memory };
+    return { line, memory, memories: await listMemories(scope.supabase) };
   });
 
 export const hearLine = createServerFn({ method: "POST" })

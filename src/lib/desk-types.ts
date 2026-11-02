@@ -9,7 +9,14 @@ export type Line = {
   createdAt: string;
 };
 
+export type SavedMemory = {
+  id: string;
+  content: string;
+  createdAt: string;
+};
+
 export type DeskHome = {
   alias: string;
   memory: string | null;
+  memories: SavedMemory[];
 };

@@ -4,6 +4,7 @@ import { AccountGate, signOutMacman, useMacmanSession } from "@/components/accou
 import { UserButton } from "@/lib/auth/gates";
 import { useCurrentUser } from "@/lib/auth/use-current-user";
 import {
+  forgetSavedMemory,
   getDesk,
   hearLine,
   listLines,
@@ -12,7 +13,7 @@ import {
   sendDesk,
   sendVoice,
 } from "@/lib/desk.functions";
-import type { Channel, DeskHome, Line } from "@/lib/desk-types";
+import type { Channel, DeskHome, Line, SavedMemory } from "@/lib/desk-types";
 
 type View = "home" | Channel;
 
@@ -91,13 +92,24 @@ export function DeskApp() {
           home={home}
           error={homeError}
           onOpen={setView}
+          onMemories={(memories) =>
+            setHome((current) =>
+              current
+                ? { ...current, memories, memory: memories[0]?.content ?? null }
+                : current,
+            )
+          }
         />
       ) : (
         <ChannelView
           channel={view}
           alias={home?.alias ?? ""}
           onBack={() => setView("home")}
-          onMemory={(memory) => setHome((current) => (current ? { ...current, memory } : current))}
+          onMemory={(memory, memories) =>
+            setHome((current) =>
+              current ? { ...current, memory, memories: memories ?? current.memories } : current,
+            )
+          }
         />
       )}
     </div>
@@ -108,11 +120,31 @@ function Home({
   home,
   error,
   onOpen,
+  onMemories,
 }: {
   home: DeskHome | null;
   error: string | null;
   onOpen: (view: View) => void;
+  onMemories: (memories: SavedMemory[]) => void;
 }) {
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [memoryNote, setMemoryNote] = useState<string | null>(null);
+  const memories = home?.memories ?? [];
+
+  async function remove(id: string) {
+    if (removing) return;
+    setRemoving(id);
+    setMemoryNote(null);
+    try {
+      const next = await forgetSavedMemory({ data: { id } });
+      onMemories(next);
+    } catch (error) {
+      setMemoryNote(errorText(error));
+    } finally {
+      setRemoving(null);
+    }
+  }
+
   return (
     <div className="flex flex-1 flex-col px-5 pt-8 pb-10">
       <p className="text-xs font-medium tracking-widest text-copper uppercase">Your desk</p>
@@ -131,14 +163,25 @@ function Home({
         ) : null}
         . They are not delivered to a phone or inbox yet.
       </p>
-      {home?.memory ? (
-        <p className="mt-6 border-l-2 border-copper pl-4 text-sm leading-relaxed text-mute">
-          <span className="mb-1 block text-xs font-medium tracking-widest text-copper uppercase">
-            The memory
-          </span>
-          {home.memory}
-        </p>
+      {memories.length > 0 ? (
+        <div className="mt-6 flex flex-col gap-3">
+          <p className="text-xs font-medium tracking-widest text-copper uppercase">Saved memories</p>
+          {memories.map((item) => (
+            <div key={item.id} className="flex items-start justify-between gap-3 border-l-2 border-copper pl-4">
+              <p className="text-sm leading-relaxed text-mute">{item.content}</p>
+              <button
+                type="button"
+                onClick={() => void remove(item.id)}
+                disabled={removing === item.id}
+                className="min-h-11 shrink-0 text-sm text-copper disabled:opacity-50"
+              >
+                {removing === item.id ? "Removing…" : "Remove"}
+              </button>
+            </div>
+          ))}
+        </div>
       ) : null}
+      {memoryNote ? <p className="mt-4 text-sm text-copper">{memoryNote}</p> : null}
       {error ? <p className="mt-4 text-sm text-copper">{error}</p> : null}
       <div className="mt-8 flex flex-col gap-3">
         {CARDS.map((card) => {
@@ -182,7 +225,7 @@ function ChannelView({
   channel: Channel;
   alias: string;
   onBack: () => void;
-  onMemory: (memory: string | null) => void;
+  onMemory: (memory: string | null, memories?: SavedMemory[]) => void;
 }) {
   const card = CARDS.find((item) => item.id === channel)!;
   const [lines, setLines] = useState<Line[] | null>(null);
@@ -226,18 +269,18 @@ function ChannelView({
           result.line,
           ...(result.reply ? [result.reply] : []),
         ]);
-        onMemory(result.memory);
+        onMemory(result.memory, result.memories);
         if (!result.reply) setNote("Kept. The desk has no answer yet.");
       } else if (channel === "mail") {
         const result = await saveMail({ data: { subject, body } });
         setLines((current) => [...(current ?? []), result.line]);
-        onMemory(result.memory);
+        onMemory(result.memory, result.memories);
         setSubject("");
         setNote("Kept on your alias. Not delivered.");
       } else {
         const result = await saveText({ data: { body } });
         setLines((current) => [...(current ?? []), result.line]);
-        onMemory(result.memory);
+        onMemory(result.memory, result.memories);
         setNote("Kept here. Not sent.");
       }
       setDraft("");

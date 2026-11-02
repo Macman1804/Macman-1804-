@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { aliasFor } from "@/lib/alias";
-import type { Channel, Line } from "@/lib/desk-types";
+import type { Channel, Line, SavedMemory } from "@/lib/desk-types";
 import { DB_CHANNEL, packBody, unpackBody } from "@/lib/supabase/channels";
 
 export { DB_CHANNEL, packBody, unpackBody };
@@ -134,6 +134,32 @@ export async function listChannelLines(client: SupabaseClient, userId: string, c
       createdAt: row.created_at,
     };
   });
+}
+
+export async function listMemories(client: SupabaseClient): Promise<SavedMemory[]> {
+  const rows = await client
+    .from("memories")
+    .select("id, content, created_at")
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false })
+    .limit(12);
+  if (rows.error) fail(rows.error, "The memories could not be opened.");
+  return (rows.data ?? []).map((row) => ({
+    id: row.id,
+    content: row.content,
+    createdAt: row.created_at,
+  }));
+}
+
+export async function forgetMemory(client: SupabaseClient, userId: string, memoryId: string): Promise<void> {
+  const updated = await client
+    .from("memories")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", memoryId)
+    .eq("subscriber_id", userId)
+    .select("id");
+  if (updated.error) fail(updated.error, "The memory could not be removed.");
+  if (!updated.data?.length) throw new Error("That memory is already gone.");
 }
 
 export async function readMemory(client: SupabaseClient): Promise<string | null> {
