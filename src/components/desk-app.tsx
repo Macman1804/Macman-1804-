@@ -22,8 +22,8 @@ type View = "home" | Channel;
 const CARDS: { id: Channel; title: string; hint: string; icon: typeof Pencil }[] = [
   { id: "desk", title: "Desk", hint: "Write it here", icon: Pencil },
   { id: "voice", title: "Voice", hint: "Speak, then hear it", icon: Mic },
-  { id: "mail", title: "Mail", hint: "A letter on your alias", icon: Mail },
-  { id: "text", title: "Text", hint: "A short line, kept here", icon: MessageSquare },
+  { id: "mail", title: "Mail", hint: "A letter answered here", icon: Mail },
+  { id: "text", title: "Text", hint: "A short line, answered here", icon: MessageSquare },
 ];
 
 function errorText(error: unknown): string {
@@ -164,14 +164,14 @@ function Home({
         One memory.
       </h1>
       <p className="mt-5 max-w-md text-base leading-relaxed text-cream/90">
-        Web and voice answer here. Mail and text are stored on this account
+        All four lines answer here. Mail and text stay on this account
         {home?.alias ? (
           <>
             {" "}
             under <span className="break-all text-mute">{home.alias}</span>
           </>
         ) : null}
-        . They are not delivered to a phone or inbox yet.
+        . They are not delivered to a phone or outside inbox.
       </p>
       {memories.length > 0 ? (
         <div className="mt-6 flex flex-col gap-3">
@@ -282,16 +282,16 @@ function ChannelView({
         onMemory(result.memory, result.memories);
         if (!result.reply) setNote("Kept. The desk has no answer yet.");
       } else if (channel === "mail") {
-        const result = await saveMail({ data: { subject, body } });
-        setLines((current) => [...(current ?? []), result.line]);
+        const result = await saveMail({ data: { subject, body, timeZone: localZone() } });
+        setLines((current) => [...(current ?? []), result.line, ...(result.reply ? [result.reply] : [])]);
         onMemory(result.memory, result.memories);
         setSubject("");
-        setNote("Kept on your alias. Not delivered.");
+        setNote(result.reply ? "Answered here. Not delivered." : "Kept. The desk has no answer yet.");
       } else {
-        const result = await saveText({ data: { body } });
-        setLines((current) => [...(current ?? []), result.line]);
+        const result = await saveText({ data: { body, timeZone: localZone() } });
+        setLines((current) => [...(current ?? []), result.line, ...(result.reply ? [result.reply] : [])]);
         onMemory(result.memory, result.memories);
-        setNote("Kept here. Not sent.");
+        setNote(result.reply ? "Answered here. Not sent." : "Kept. The desk has no answer yet.");
       }
       setDraft("");
     } catch (error) {
@@ -369,8 +369,8 @@ function ChannelView({
         {channel === "desk" && "Write it here. A reply takes a few seconds."}
         {channel === "voice" && "A browser call listens, answers aloud, then listens again. A phone call is not connected."}
         {channel === "mail" &&
-          `A letter on ${alias || "your alias"}. Stored on this account. Not delivered.`}
-        {channel === "text" && "A short line, kept here. Not sent to a phone."}
+          `A letter on ${alias || "your alias"}. Answered here. Not delivered to an outside inbox.`}
+        {channel === "text" && "A short line, answered here. Not sent to a phone."}
       </p>
       <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-5 py-6">
         {lines === null ? (
@@ -434,7 +434,7 @@ function ChannelView({
           disabled={busy || !draft.trim()}
           className="mt-3 min-h-12 w-full rounded-full bg-copper text-base font-medium text-ink disabled:opacity-50"
         >
-          {channel === "mail" ? "Keep the letter" : channel === "text" ? "Keep the line" : "Ask the desk"}
+          {channel === "mail" ? "Ask in the letter" : channel === "text" ? "Ask by text" : "Ask the desk"}
         </button>
       </form>
       )}

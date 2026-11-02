@@ -1,12 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DB_CHANNEL, packBody, unpackBody } from "./channels.ts";
+import { DB_CHANNEL, packBody, replySubject, unpackBody } from "./channels.ts";
 
 test("mail subject is packed and unpacked without changing other channels", () => {
   const packed = packBody("mail", "See you then.", "Tuesday");
   assert.equal(packed, "Subject: Tuesday\nSee you then.");
   assert.deepEqual(unpackBody("mail", packed), { subject: "Tuesday", body: "See you then." });
   assert.deepEqual(unpackBody("desk", "Hello"), { subject: null, body: "Hello" });
+});
+
+test("a mail reply keeps the subject and does not repeat Re", () => {
+  assert.equal(replySubject("Tuesday"), "Re: Tuesday");
+  assert.equal(replySubject("Re: Tuesday"), "Re: Tuesday");
+  assert.equal(replySubject(null), "Re: Letter");
 });
 
 test("desk channels map onto the existing Supabase channel values", () => {
@@ -17,3 +23,4 @@ test("desk channels map onto the existing Supabase channel values", () => {
     text: "sms",
   });
 });
+

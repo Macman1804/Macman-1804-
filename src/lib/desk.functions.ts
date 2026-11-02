@@ -15,6 +15,7 @@ import {
 import { pickRelevant, type PastLine } from "@/lib/supabase/memory-context";
 import { voiceId } from "@/lib/voice/voices";
 import { calendarReply } from "@/lib/voice/calendar";
+import { replySubject } from "@/lib/supabase/channels";
 import { CHANNELS, type Channel, type DeskHome, type Line, type SavedMemory } from "@/lib/desk-types";
 
 const LIMITS: Record<Channel, number> = {
@@ -103,16 +104,24 @@ async function earlierLines(client: SupabaseClient, userId: string, channel: Cha
   return groups.flat();
 }
 
-async function answer(scope: Scope, channel: "desk" | "voice", body: string, timeZone: string) {
+async function answer(
+  scope: Scope,
+  channel: Channel,
+  body: string,
+  timeZone: string,
+  subject: string | null = null,
+) {
   const userId = scope.supabaseUserId;
   const client = scope.supabase;
   await ensureAlias(client, userId, scope.supabaseEmail);
   const memories = await listMemories(client);
-  const line = await insertLine(client, userId, channel, "person", body, null);
+  const mailSubject = channel === "mail" ? subject || "Letter" : null;
+  const line = await insertLine(client, userId, channel, "person", body, mailSubject);
   await recordUsage(client, userId, channel);
+  const replySubjectLine = channel === "mail" ? replySubject(mailSubject) : null;
   const direct = calendarReply(body, new Date(), timeZone);
   if (direct) {
-    const reply = await insertLine(client, userId, channel, "macman", direct, null);
+    const reply = await insertLine(client, userId, channel, "macman", direct, replySubjectLine);
     return { line, reply, memory: memories[0]?.content ?? null, memories };
   }
   const transcript = await recentTranscript(client, userId, channel);
@@ -142,7 +151,11 @@ async function answer(scope: Scope, channel: "desk" | "voice", body: string, tim
   const raw = await complete(
     [
       "You are Macman, a private desk for one person.",
-      "Reply in two short sentences, plain and warm. No lists, no markdown, no sign-off.",
+      channel === "mail"
+        ? "This is a letter kept on the desk. It is not sent to an outside inbox. Write two or three short sentences. No lists, no markdown, no sign-off."
+        : channel === "text"
+          ? "This is a text kept on the desk. It is not sent to a phone. Keep the reply under 160 characters. No lists, no markdown, no sign-off."
+          : "Reply in two short sentences, plain and warm. No lists, no markdown, no sign-off.",
       `Today is ${clock}. Answer a date question with that date. Never say you do not have today's date.`,
       "Use the saved memories and earlier lines for personal facts. Do not invent personal facts they did not give you.",
       "If a personal fact is not in the memories or earlier lines, say you do not have it yet.",
@@ -151,28 +164,17 @@ async function answer(scope: Scope, channel: "desk" | "voice", body: string, tim
       `Saved memories:\n${memoryText}`,
       earlierText ? `Earlier lines from other channels:\n${earlierText}` : "Earlier lines from other channels: none yet",
     ].join(" "),
-    `Channel: ${channel}\n${transcript || `Person: ${body}`}`,
-    220,
+    `Channel: ${channel}${mailSubject ? `\nSubject: ${mailSubject}` : ""}\n${transcript || `Person: ${body}`}`,
+    channel === "text" ? 120 : 220,
   );
   if (!raw) {
     return { line, reply: null as Line | null, memory: memories[0]?.content ?? null, memories };
   }
   const parsed = splitReply(raw);
-  const reply = await insertLine(client, userId, channel, "macman", parsed.reply, null);
+  const reply = await insertLine(client, userId, channel, "macman", parsed.reply, replySubjectLine);
   const next = parsed.memory ? await writeMemory(client, userId, channel, parsed.memory) : memories[0]?.content ?? null;
   const saved = await listMemories(client);
   return { line, reply, memory: next, memories: saved };
-}
-
-async function foldMemory(scope: Scope, channel: Channel, kind: string, text: string) {
-  const previous = await readMemory(scope.supabase);
-  const raw = await complete(
-    "Write one sentence under 140 characters. It is the single memory a private desk should keep. Fold the previous memory with the new note. Do not invent facts. No prefix, no quotes.",
-    `Previous memory: ${previous ?? "none yet"}\nNew ${kind}: ${text.slice(0, 500)}`,
-    80,
-  );
-  const next = raw ? raw.replace(/^memory:\s*/i, "") : text.slice(0, 140);
-  return writeMemory(scope.supabase, scope.supabaseUserId, channel, next);
 }
 
 export const getDesk = createServerFn({ method: "GET" })
@@ -234,50 +236,30 @@ export const sendVoice = createServerFn({ method: "POST" })
 
 export const saveMail = createServerFn({ method: "POST" })
   .middleware(guards)
-  .validator((input: { subject: string; body: string }) => {
+  .validator((input: { subject: string; body: string; timeZone?: string }) => {
     const body = input?.body?.trim() ?? "";
     const subject = (input?.subject ?? "").trim().slice(0, 120);
+    const timeZone = (input?.timeZone ?? "").trim();
     if (!body || body.length > LIMITS.mail) throw new Error("Keep the letter shorter.");
-    return { subject: subject || "Letter", body };
+    if (timeZone && !/^[A-Za-z0-9_+\-/]{1,80}$/.test(timeZone)) throw new Error("Keep the letter shorter.");
+    return { subject: subject || "Letter", body, timeZone: timeZone || "America/New_York" };
   })
-  .handler(async ({ context, data }) => {
-    const scope = context as unknown as Scope;
-    await ensureAlias(scope.supabase, scope.supabaseUserId, scope.supabaseEmail);
-    const line = await insertLine(
-      scope.supabase,
-      scope.supabaseUserId,
-      "mail",
-      "person",
-      data.body,
-      data.subject,
-    );
-    await recordUsage(scope.supabase, scope.supabaseUserId, "mail");
-    const memory = await foldMemory(scope, "mail", "letter", `${data.subject}. ${data.body}`);
-    return { line, memory, memories: await listMemories(scope.supabase) };
-  });
+  .handler(async ({ context, data }) =>
+    answer(context as unknown as Scope, "mail", data.body, data.timeZone, data.subject),
+  );
 
 export const saveText = createServerFn({ method: "POST" })
   .middleware(guards)
-  .validator((input: { body: string }) => {
+  .validator((input: { body: string; timeZone?: string }) => {
     const body = input?.body?.trim() ?? "";
+    const timeZone = (input?.timeZone ?? "").trim();
     if (!body || body.length > LIMITS.text) throw new Error("Keep it to one short line.");
-    return { body };
+    if (timeZone && !/^[A-Za-z0-9_+\-/]{1,80}$/.test(timeZone)) throw new Error("Keep it to one short line.");
+    return { body, timeZone: timeZone || "America/New_York" };
   })
-  .handler(async ({ context, data }) => {
-    const scope = context as unknown as Scope;
-    await ensureAlias(scope.supabase, scope.supabaseUserId, scope.supabaseEmail);
-    const line = await insertLine(
-      scope.supabase,
-      scope.supabaseUserId,
-      "text",
-      "person",
-      data.body,
-      null,
-    );
-    await recordUsage(scope.supabase, scope.supabaseUserId, "text");
-    const memory = await foldMemory(scope, "text", "text", data.body);
-    return { line, memory, memories: await listMemories(scope.supabase) };
-  });
+  .handler(async ({ context, data }) =>
+    answer(context as unknown as Scope, "text", data.body, data.timeZone, null),
+  );
 
 const AUDIO_TYPES = new Set(["audio/webm", "audio/mp4", "audio/ogg", "audio/mpeg", "audio/wav", "audio/x-m4a"]);
 

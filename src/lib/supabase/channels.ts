@@ -21,3 +21,8 @@ export function unpackBody(channel: Channel, content: string): { body: string; s
   const subject = content.slice("Subject: ".length, split).trim() || "Letter";
   return { body: content.slice(split + 1), subject };
 }
+
+export function replySubject(subject: string | null): string {
+  const base = (subject ?? "Letter").replace(/^re:\s*/i, "").trim() || "Letter";
+  return `Re: ${base}`.slice(0, 120);
+}
