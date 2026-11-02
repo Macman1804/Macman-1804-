@@ -36,7 +36,7 @@ export function DeskApp() {
   const [view, setView] = useState<View>("home");
 
   useEffect(() => {
-    if (!account.session || !user?.id) return;
+    if (!account.session) return;
     let cancel = false;
     getDesk()
       .then((next) => {
@@ -48,7 +48,7 @@ export function DeskApp() {
     return () => {
       cancel = true;
     };
-  }, [account.session, user?.id]);
+  }, [account.session]);
 
   if (!account.session) {
     return (
@@ -73,10 +73,16 @@ export function DeskApp() {
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2 text-sm">
-          <span className="grid size-8 place-items-center rounded-full bg-card text-xs font-medium">
-            G
-          </span>
-          Grok user
+          {user ? (
+            <>
+              <span className="grid size-8 place-items-center rounded-full bg-card text-xs font-medium">
+                G
+              </span>
+              Grok user
+            </>
+          ) : (
+            <span className="text-mute">Signed in</span>
+          )}
         </div>
       </header>
 

@@ -1,6 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { authMiddleware } from "@/lib/auth/middleware";
 import { supabaseMiddleware } from "@/lib/supabase/middleware";
 import {
   ensureAlias,
@@ -20,7 +19,7 @@ const LIMITS: Record<Channel, number> = {
   text: 160,
 };
 
-const guards = [authMiddleware, supabaseMiddleware];
+const guards = [supabaseMiddleware];
 
 type Scope = {
   supabaseUserId: string;

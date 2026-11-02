@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Live check against the configured Supabase project.
- * Creates two disposable auth users, then checks session and row isolation.
+ * Live Phase 1 check against the configured Supabase project.
+ * Creates two disposable auth users, then checks owner writes and row isolation.
  * Refuses to run unless SUPABASE_RLS_TEST=1. Does not print tokens or passwords.
  */
 import { readFileSync } from "node:fs";
@@ -24,14 +24,14 @@ const env = Object.fromEntries(
 
 const url = env.VITE_SUPABASE_URL;
 const key = env.VITE_SUPABASE_PUBLISHABLE_KEY;
-if (!url || !key) {
-  console.error("missing public supabase env");
+if (!url || !key || !url.includes("bexuyxicdxtviapavdwi")) {
+  console.error("missing or unexpected public supabase env");
   process.exit(1);
 }
 
 const stamp = Date.now();
 const password = `Macman-${stamp}-Test`;
-const emails = [`macman-rls-a.${stamp}@example.com`, `macman-rls-b.${stamp}@example.com`];
+const emails = [`macman-rls-a.${stamp}@example.org`, `macman-rls-b.${stamp}@example.org`];
 
 function client() {
   return createClient(url, key, {
@@ -40,6 +40,14 @@ function client() {
 }
 
 const report = [];
+
+function shape(result) {
+  return {
+    rows: Array.isArray(result.data) ? result.data.length : result.data ? 1 : 0,
+    error: result.error?.message ?? null,
+    code: result.error?.code ?? null,
+  };
+}
 
 async function signUp(email) {
   const supabase = client();
@@ -51,15 +59,13 @@ async function signUp(email) {
   const signedOut = await supabase.auth.signOut();
   const again = client();
   const signedIn = await again.auth.signInWithPassword({ email, password });
-  const user = signedIn.data.user;
-  const access = signedIn.data.session?.access_token;
   return {
     email,
-    user: user?.id ?? null,
+    user: signedIn.data.user?.id ?? created.data.user?.id ?? null,
     session: Boolean(signedIn.data.session),
     signOutError: signedOut.error?.message ?? null,
     signInError: signedIn.error?.message ?? null,
-    access,
+    access: signedIn.data.session?.access_token,
   };
 }
 
@@ -67,8 +73,8 @@ const a = await signUp(emails[0]);
 const b = await signUp(emails[1]);
 report.push({
   step: "auth",
-  a: { email: a.email, user: a.user, session: a.session, confirm: a.confirm ?? false, error: a.error ?? a.signInError ?? null },
-  b: { email: b.email, user: b.user, session: b.session, confirm: b.confirm ?? false, error: b.error ?? b.signInError ?? null },
+  a: { email: a.email, user: Boolean(a.user), session: Boolean(a.session), confirm: a.confirm ?? false, error: a.error ?? a.signInError ?? null },
+  b: { email: b.email, user: Boolean(b.user), session: Boolean(b.session), confirm: b.confirm ?? false, error: b.error ?? b.signInError ?? null },
 });
 
 async function asUser(access) {
@@ -78,56 +84,102 @@ async function asUser(access) {
   });
 }
 
-if (a.access && b.access) {
+if (a.access && b.access && a.user && b.user) {
   const userA = await asUser(a.access);
   const userB = await asUser(b.access);
-  const checks = {};
-  checks.aProfiles = await userA.from("profiles").select("id");
-  checks.bProfiles = await userB.from("profiles").select("id");
-  checks.aMessages = await userA.from("messages").select("id");
-  checks.aInsertProfile = await userA.from("profiles").insert({
+
+  const profileA = await userA.from("profiles").insert({
     id: a.user,
     email: a.email,
     status: "active",
-  });
-  checks.aInsertMessage = await userA.from("messages").insert({
-    subscriber_id: a.user,
-    conversation_id: "00000000-0000-0000-0000-000000000000",
-    direction: "inbound",
-    content: "isolation probe",
-    status: "stored",
-  });
-  checks.aUpdateProfiles = await userA.from("profiles").update({ locale: "en" }).neq("id", a.user);
-  checks.aDeleteProfiles = await userA.from("profiles").delete().neq("id", a.user);
-  checks.bSeesA = a.user
-    ? await userB.from("profiles").select("id").eq("id", a.user)
-    : { data: null, error: { message: "no user" } };
+  }).select("id").single();
+  const profileB = await userB.from("profiles").insert({
+    id: b.user,
+    email: b.email,
+    status: "active",
+  }).select("id").single();
 
-  const shape = (result) => ({
-    rows: Array.isArray(result.data) ? result.data.length : result.data ? 1 : 0,
-    error: result.error?.message ?? null,
-    code: result.error?.code ?? null,
+  const conversationA = await userA.from("conversations").insert({
+    subscriber_id: a.user,
+    channel: "web",
+    external_thread_id: "desk",
+  }).select("id").single();
+  const messageA = conversationA.data?.id
+    ? await userA.from("messages").insert({
+        subscriber_id: a.user,
+        conversation_id: conversationA.data.id,
+        direction: "inbound",
+        sender: "person",
+        content: "Phase 1 desk line",
+        status: "stored",
+      }).select("id, content").single()
+    : { data: null, error: { message: "no conversation", code: "skipped" } };
+  const listedA = conversationA.data?.id
+    ? await userA.from("messages").select("id, content").eq("conversation_id", conversationA.data.id).eq("subscriber_id", a.user)
+    : { data: [], error: null };
+
+  const memoryA = await userA.from("memories").insert({
+    subscriber_id: a.user,
+    content: "Phase 1 memory",
+    source_channel: "web",
+  }).select("id, content");
+  const memoryReadA = await userA.from("memories").select("content").is("deleted_at", null).order("created_at", { ascending: false }).limit(1);
+
+  const usageA = await userA.from("usage_events").insert({
+    subscriber_id: a.user,
+    channel: "web",
+    units: 1,
+    estimated_cost_usd: 0,
+  }).select("id");
+  const usageReadA = await userA.from("usage_events").select("id").eq("subscriber_id", a.user);
+
+  const cross = {
+    bProfiles: await userB.from("profiles").select("id").eq("id", a.user),
+    bConversations: await userB.from("conversations").select("id").eq("subscriber_id", a.user),
+    bMessages: conversationA.data?.id
+      ? await userB.from("messages").select("id").eq("conversation_id", conversationA.data.id)
+      : { data: [], error: null },
+    bMemories: await userB.from("memories").select("id").eq("subscriber_id", a.user),
+    bUsage: await userB.from("usage_events").select("id").eq("subscriber_id", a.user),
+    bInsertsAProfile: await userB.from("profiles").insert({ id: a.user, email: a.email, status: "active" }),
+    bInsertsAMessage: conversationA.data?.id
+      ? await userB.from("messages").insert({
+          subscriber_id: b.user,
+          conversation_id: conversationA.data.id,
+          direction: "inbound",
+          content: "cross user",
+          status: "stored",
+        })
+      : { data: null, error: { message: "no conversation", code: "skipped" } },
+  };
+
+  report.push({
+    step: "owner-writes",
+    profileA: shape(profileA),
+    profileB: shape(profileB),
+    conversationA: shape(conversationA),
+    messageA: shape(messageA),
+    listedA: shape(listedA),
+    listedBody: listedA.data?.[0]?.content === "Phase 1 desk line",
+    memoryA: shape(memoryA),
+    memoryReadA: memoryReadA.data?.[0]?.content === "Phase 1 memory",
+    memoryError: memoryReadA.error?.message ?? null,
+    usageA: shape(usageA),
+    usageReadA: shape(usageReadA),
   });
   report.push({
-    step: "rls",
-    aProfiles: shape(checks.aProfiles),
-    bProfiles: shape(checks.bProfiles),
-    aMessages: shape(checks.aMessages),
-    aInsertProfile: shape(checks.aInsertProfile),
-    aInsertMessage: shape(checks.aInsertMessage),
-    aUpdateProfiles: shape(checks.aUpdateProfiles),
-    aDeleteProfiles: shape(checks.aDeleteProfiles),
-    bSeesA: shape(checks.bSeesA),
+    step: "isolation",
+    bProfiles: shape(cross.bProfiles),
+    bConversations: shape(cross.bConversations),
+    bMessages: shape(cross.bMessages),
+    bMemories: shape(cross.bMemories),
+    bUsage: shape(cross.bUsage),
+    bInsertsAProfile: shape(cross.bInsertsAProfile),
+    bInsertsAMessage: shape(cross.bInsertsAMessage),
   });
 
   await userA.auth.signOut();
   await userB.auth.signOut();
-  const after = await client().auth.getUser(a.access);
-  report.push({
-    step: "after-signout",
-    getUserError: after.error?.message ?? null,
-    stillHasUser: Boolean(after.data.user),
-  });
 }
 
 console.log(JSON.stringify(report, null, 2));

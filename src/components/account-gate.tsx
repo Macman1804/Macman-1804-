@@ -4,6 +4,7 @@ import { browserSupabase } from "@/lib/supabase/browser";
 
 export function useMacmanSession() {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
+  const [recovery, setRecovery] = useState(false);
   const configured = browserSupabase() !== null;
 
   useEffect(() => {
@@ -16,7 +17,8 @@ export function useMacmanSession() {
     client.auth.getSession().then(({ data }) => {
       if (!cancel) setSession(data.session);
     });
-    const { data } = client.auth.onAuthStateChange((_event, next) => {
+    const { data } = client.auth.onAuthStateChange((event, next) => {
+      if (event === "PASSWORD_RECOVERY") setRecovery(true);
       setSession(next);
     });
     return () => {
@@ -25,20 +27,27 @@ export function useMacmanSession() {
     };
   }, []);
 
-  return { configured, session, ready: session !== undefined };
+  return {
+    configured,
+    session,
+    ready: session !== undefined,
+    recovery,
+    finishRecovery: () => setRecovery(false),
+  };
 }
 
 export function AccountGate({ children }: { children: ReactNode }) {
-  const { configured, session, ready } = useMacmanSession();
-  if (!configured) {
+  const account = useMacmanSession();
+  if (!account.configured) {
     return (
       <p className="px-5 py-10 text-sm leading-relaxed text-mute">
         Supabase is not configured for this build.
       </p>
     );
   }
-  if (!ready) return <p className="px-5 py-10 text-sm text-mute">Opening your account…</p>;
-  if (!session) return <AccountPanel />;
+  if (!account.ready) return <p className="px-5 py-10 text-sm text-mute">Opening your account…</p>;
+  if (account.recovery) return <NewPassword onDone={account.finishRecovery} />;
+  if (!account.session) return <AccountPanel />;
   return children;
 }
 
@@ -48,10 +57,11 @@ export function signOutMacman() {
   return client.auth.signOut();
 }
 
-function AccountPanel() {
-  const [mode, setMode] = useState<"in" | "up">("in");
+export function AccountPanel() {
+  const [mode, setMode] = useState<"in" | "up" | "forgot">("in");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
@@ -59,13 +69,28 @@ function AccountPanel() {
     event.preventDefault();
     const client = browserSupabase();
     if (!client || busy) return;
+    const address = email.trim();
+    if (mode === "up" && password !== confirm) {
+      setNote("Those passwords do not match.");
+      return;
+    }
     setBusy(true);
     setNote(null);
-    const credentials = { email: email.trim(), password };
+    if (mode === "forgot") {
+      const result = await client.auth.resetPasswordForEmail(address, {
+        redirectTo: `${window.location.origin}/`,
+      });
+      setBusy(false);
+      setNote(
+        result.error?.message ??
+          "Check that inbox for a recovery link. The account stays locked until you open it.",
+      );
+      return;
+    }
     const result =
       mode === "up"
-        ? await client.auth.signUp(credentials)
-        : await client.auth.signInWithPassword(credentials);
+        ? await client.auth.signUp({ email: address, password })
+        : await client.auth.signInWithPassword({ email: address, password });
     setBusy(false);
     if (result.error) {
       setNote(result.error.message);
@@ -76,14 +101,16 @@ function AccountPanel() {
     }
   }
 
+  const title =
+    mode === "up" ? "Create the desk." : mode === "forgot" ? "Recover the desk." : "Open the desk.";
+
   return (
-    <form onSubmit={submit} className="flex flex-1 flex-col px-5 pt-8 pb-10">
-      <p className="text-xs font-medium tracking-widest text-copper uppercase">Your account</p>
-      <h1 className="mt-4 font-serif text-4xl leading-none text-cream">
-        {mode === "up" ? "Create the desk." : "Open the desk."}
-      </h1>
+    <form onSubmit={submit} className="flex flex-col">
+      <h1 className="font-serif text-4xl leading-none text-cream">{title}</h1>
       <p className="mt-4 max-w-md text-base leading-relaxed text-cream/90">
-        Email and password stay with Supabase. This does not send mail, texts, or calls.
+        {mode === "forgot"
+          ? "A recovery link goes to this inbox. Email confirmation stays on."
+          : "Email and password stay with Supabase. A new account must confirm its email before the desk opens."}
       </p>
       <label className="mt-8 text-sm text-mute" htmlFor="macman-email">
         Email
@@ -97,17 +124,132 @@ function AccountPanel() {
         onChange={(event) => setEmail(event.target.value)}
         className="mt-2 min-h-12 rounded-2xl border border-edge bg-card px-4 text-base text-cream outline-none"
       />
-      <label className="mt-4 text-sm text-mute" htmlFor="macman-password">
-        Password
+      {mode !== "forgot" ? (
+        <>
+          <label className="mt-4 text-sm text-mute" htmlFor="macman-password">
+            Password
+          </label>
+          <input
+            id="macman-password"
+            type="password"
+            autoComplete={mode === "up" ? "new-password" : "current-password"}
+            required
+            minLength={8}
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            className="mt-2 min-h-12 rounded-2xl border border-edge bg-card px-4 text-base text-cream outline-none"
+          />
+        </>
+      ) : null}
+      {mode === "up" ? (
+        <>
+          <label className="mt-4 text-sm text-mute" htmlFor="macman-confirm">
+            Confirm password
+          </label>
+          <input
+            id="macman-confirm"
+            type="password"
+            autoComplete="new-password"
+            required
+            minLength={8}
+            value={confirm}
+            onChange={(event) => setConfirm(event.target.value)}
+            className="mt-2 min-h-12 rounded-2xl border border-edge bg-card px-4 text-base text-cream outline-none"
+          />
+        </>
+      ) : null}
+      {note ? <p className="mt-4 text-sm leading-relaxed text-copper">{note}</p> : null}
+      <button
+        type="submit"
+        disabled={busy}
+        className="mt-6 min-h-12 rounded-full bg-copper text-base font-medium text-ink disabled:opacity-50"
+      >
+        {busy ? "Working…" : mode === "up" ? "Create account" : mode === "forgot" ? "Send recovery link" : "Sign in"}
+      </button>
+      <div className="mt-3 flex flex-col items-start gap-1">
+        {mode === "in" ? (
+          <button
+            type="button"
+            className="min-h-11 text-sm text-mute"
+            onClick={() => {
+              setMode("forgot");
+              setNote(null);
+            }}
+          >
+            Forgot password
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className="min-h-11 text-sm text-mute"
+          onClick={() => {
+            setMode(mode === "up" ? "in" : "up");
+            setNote(null);
+            setConfirm("");
+          }}
+        >
+          {mode === "up" ? "I already have an account" : "Create an account"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+export function NewPassword({ onDone }: { onDone: () => void }) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const client = browserSupabase();
+    if (!client || busy) return;
+    if (password !== confirm) {
+      setNote("Those passwords do not match.");
+      return;
+    }
+    setBusy(true);
+    setNote(null);
+    const result = await client.auth.updateUser({ password });
+    setBusy(false);
+    if (result.error) {
+      setNote(result.error.message);
+      return;
+    }
+    onDone();
+  }
+
+  return (
+    <form onSubmit={submit} className="flex flex-col px-5 pt-8 pb-10">
+      <h1 className="font-serif text-4xl leading-none text-cream">Choose a new password.</h1>
+      <p className="mt-4 max-w-md text-base leading-relaxed text-cream/90">
+        This replaces the password for the confirmed account. The desk opens after it is saved.
+      </p>
+      <label className="mt-8 text-sm text-mute" htmlFor="macman-new-password">
+        New password
       </label>
       <input
-        id="macman-password"
+        id="macman-new-password"
         type="password"
-        autoComplete={mode === "up" ? "new-password" : "current-password"}
+        autoComplete="new-password"
         required
         minLength={8}
         value={password}
         onChange={(event) => setPassword(event.target.value)}
+        className="mt-2 min-h-12 rounded-2xl border border-edge bg-card px-4 text-base text-cream outline-none"
+      />
+      <label className="mt-4 text-sm text-mute" htmlFor="macman-new-confirm">
+        Confirm password
+      </label>
+      <input
+        id="macman-new-confirm"
+        type="password"
+        autoComplete="new-password"
+        required
+        minLength={8}
+        value={confirm}
+        onChange={(event) => setConfirm(event.target.value)}
         className="mt-2 min-h-12 rounded-2xl border border-edge bg-card px-4 text-base text-cream outline-none"
       />
       {note ? <p className="mt-4 text-sm text-copper">{note}</p> : null}
@@ -116,17 +258,7 @@ function AccountPanel() {
         disabled={busy}
         className="mt-6 min-h-12 rounded-full bg-copper text-base font-medium text-ink disabled:opacity-50"
       >
-        {busy ? "Working…" : mode === "up" ? "Create account" : "Sign in"}
-      </button>
-      <button
-        type="button"
-        className="mt-3 min-h-11 text-sm text-mute"
-        onClick={() => {
-          setMode(mode === "up" ? "in" : "up");
-          setNote(null);
-        }}
-      >
-        {mode === "up" ? "I already have an account" : "Create an account"}
+        {busy ? "Working…" : "Save password"}
       </button>
     </form>
   );
