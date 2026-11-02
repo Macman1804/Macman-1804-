@@ -14,6 +14,7 @@ import {
 } from "@/lib/supabase/desk-store";
 import { pickRelevant, type PastLine } from "@/lib/supabase/memory-context";
 import { voiceId } from "@/lib/voice/voices";
+import { calendarReply } from "@/lib/voice/calendar";
 import { CHANNELS, type Channel, type DeskHome, type Line, type SavedMemory } from "@/lib/desk-types";
 
 const LIMITS: Record<Channel, number> = {
@@ -102,31 +103,47 @@ async function earlierLines(client: SupabaseClient, userId: string, channel: Cha
   return groups.flat();
 }
 
-async function answer(scope: Scope, channel: "desk" | "voice", body: string) {
+async function answer(scope: Scope, channel: "desk" | "voice", body: string, timeZone: string) {
   const userId = scope.supabaseUserId;
   const client = scope.supabase;
   await ensureAlias(client, userId, scope.supabaseEmail);
   const memories = await listMemories(client);
   const line = await insertLine(client, userId, channel, "person", body, null);
   await recordUsage(client, userId, channel);
+  const direct = calendarReply(body, new Date(), timeZone);
+  if (direct) {
+    const reply = await insertLine(client, userId, channel, "macman", direct, null);
+    return { line, reply, memory: memories[0]?.content ?? null, memories };
+  }
   const transcript = await recentTranscript(client, userId, channel);
   const earlier = pickRelevant(await earlierLines(client, userId, channel), body);
   const memoryText = memories.map((item) => item.content).join("\n") || "none yet";
   const earlierText = earlier
     .map((item) => `${item.channel} ${item.role === "person" ? "Person" : "Macman"}: ${item.body.slice(0, 240)}`)
     .join("\n");
-  const clock = new Intl.DateTimeFormat("en-US", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    timeZone: "America/New_York",
-  }).format(new Date());
+  let clock = "";
+  try {
+    clock = new Intl.DateTimeFormat("en-US", {
+      weekday: "long",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      timeZone: timeZone || "America/New_York",
+    }).format(new Date());
+  } catch {
+    clock = new Intl.DateTimeFormat("en-US", {
+      weekday: "long",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      timeZone: "America/New_York",
+    }).format(new Date());
+  }
   const raw = await complete(
     [
       "You are Macman, a private desk for one person.",
       "Reply in two short sentences, plain and warm. No lists, no markdown, no sign-off.",
-      `Today is ${clock}, Eastern Time. You may answer with that date. Do not store the date as a memory.`,
+      `Today is ${clock}. Answer a date question with that date. Never say you do not have today's date.`,
       "Use the saved memories and earlier lines for personal facts. Do not invent personal facts they did not give you.",
       "If a personal fact is not in the memories or earlier lines, say you do not have it yet.",
       "Then a final line that starts with MEMORY: and one sentence under 140 characters.",
@@ -193,23 +210,27 @@ export const forgetSavedMemory = createServerFn({ method: "POST" })
     return listMemories(scope.supabase);
   });
 
+function asked(input: { body: string; timeZone?: string }, limit: number) {
+  const body = input?.body?.trim() ?? "";
+  const timeZone = (input?.timeZone ?? "").trim();
+  if (!body || body.length > limit) throw new Error("Write a shorter line.");
+  if (timeZone && !/^[A-Za-z0-9_+\-/]{1,80}$/.test(timeZone)) throw new Error("Write a shorter line.");
+  return { body, timeZone: timeZone || "America/New_York" };
+}
+
 export const sendDesk = createServerFn({ method: "POST" })
   .middleware(guards)
-  .validator((input: { body: string }) => {
-    const body = input?.body?.trim() ?? "";
-    if (!body || body.length > LIMITS.desk) throw new Error("Write a shorter line.");
-    return { body };
-  })
-  .handler(async ({ context, data }) => answer(context as unknown as Scope, "desk", data.body));
+  .validator((input: { body: string; timeZone?: string }) => asked(input, LIMITS.desk))
+  .handler(async ({ context, data }) =>
+    answer(context as unknown as Scope, "desk", data.body, data.timeZone),
+  );
 
 export const sendVoice = createServerFn({ method: "POST" })
   .middleware(guards)
-  .validator((input: { body: string }) => {
-    const body = input?.body?.trim() ?? "";
-    if (!body || body.length > LIMITS.voice) throw new Error("Say a shorter line.");
-    return { body };
-  })
-  .handler(async ({ context, data }) => answer(context as unknown as Scope, "voice", data.body));
+  .validator((input: { body: string; timeZone?: string }) => asked(input, LIMITS.voice))
+  .handler(async ({ context, data }) =>
+    answer(context as unknown as Scope, "voice", data.body, data.timeZone),
+  );
 
 export const saveMail = createServerFn({ method: "POST" })
   .middleware(guards)

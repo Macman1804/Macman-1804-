@@ -31,6 +31,14 @@ function errorText(error: unknown): string {
   return "The desk could not keep that.";
 }
 
+function localZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch {
+    return "America/New_York";
+  }
+}
+
 export function DeskApp() {
   const account = useMacmanSession();
   const user = useCurrentUser();
@@ -264,8 +272,8 @@ function ChannelView({
       if (channel === "desk" || channel === "voice") {
         const result =
           channel === "desk"
-            ? await sendDesk({ data: { body } })
-            : await sendVoice({ data: { body } });
+            ? await sendDesk({ data: { body, timeZone: localZone() } })
+            : await sendVoice({ data: { body, timeZone: localZone() } });
         setLines((current) => [
           ...(current ?? []),
           result.line,
@@ -297,7 +305,7 @@ function ChannelView({
     setBusy(true);
     setNote(null);
     try {
-      const result = await sendVoice({ data: { body } });
+      const result = await sendVoice({ data: { body, timeZone: localZone() } });
       setLines((current) => [...(current ?? []), result.line, ...(result.reply ? [result.reply] : [])]);
       onMemory(result.memory, result.memories);
       if (!result.reply) setNote("Kept. The desk has no answer yet.");
