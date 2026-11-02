@@ -13,6 +13,7 @@ import {
   writeMemory,
 } from "@/lib/supabase/desk-store";
 import { pickRelevant, type PastLine } from "@/lib/supabase/memory-context";
+import { voiceId } from "@/lib/voice/voices";
 import { CHANNELS, type Channel, type DeskHome, type Line, type SavedMemory } from "@/lib/desk-types";
 
 const LIMITS: Record<Channel, number> = {
@@ -251,10 +252,10 @@ export const saveText = createServerFn({ method: "POST" })
 
 export const hearLine = createServerFn({ method: "POST" })
   .middleware(guards)
-  .validator((input: { lineId: string }) => {
+  .validator((input: { lineId: string; voiceId?: string }) => {
     const lineId = input?.lineId?.trim() ?? "";
     if (!lineId || lineId.length > 80) throw new Error("Nothing to hear.");
-    return { lineId };
+    return { lineId, voiceId: voiceId(input?.voiceId) };
   })
   .handler(async ({ context, data }) => {
     const scope = context as unknown as Scope;
@@ -270,7 +271,7 @@ export const hearLine = createServerFn({ method: "POST" })
           Authorization: `Bearer ${apiKey}`,
         },
         signal: AbortSignal.timeout(25000),
-        body: JSON.stringify({ text, voice_id: "eve" }),
+        body: JSON.stringify({ text, voice_id: data.voiceId, language: "en" }),
       });
       if (!res.ok) return { ok: false as const, error: "The voice is quiet right now." };
       const ctype = res.headers.get("content-type") ?? "";

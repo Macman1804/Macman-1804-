@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Mail, MessageSquare, Mic, Pencil, Volume2 } from "lucide-react";
 import { AccountGate, signOutMacman, useMacmanSession } from "@/components/account-gate";
+import { VoiceCall } from "@/components/voice-call";
 import { UserButton } from "@/lib/auth/gates";
 import { useCurrentUser } from "@/lib/auth/use-current-user";
 import {
@@ -14,6 +15,7 @@ import {
   sendVoice,
 } from "@/lib/desk.functions";
 import type { Channel, DeskHome, Line, SavedMemory } from "@/lib/desk-types";
+import type { VoiceId } from "@/lib/voice/voices";
 
 type View = "home" | Channel;
 
@@ -234,7 +236,7 @@ function ChannelView({
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [hearing, setHearing] = useState<string | null>(null);
-  const [listening, setListening] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     let cancel = false;
@@ -291,44 +293,42 @@ function ChannelView({
     }
   }
 
-  function speak() {
-    const Recognition = (
-      window as Window & {
-        SpeechRecognition?: new () => SpeechRec;
-        webkitSpeechRecognition?: new () => SpeechRec;
-      }
-    ).SpeechRecognition ?? (
-      window as Window & { webkitSpeechRecognition?: new () => SpeechRec }
-    ).webkitSpeechRecognition;
-    if (!Recognition) {
-      setNote("This browser cannot listen. Write the line instead.");
-      return;
+  async function askVoice(body: string): Promise<string | null> {
+    setBusy(true);
+    setNote(null);
+    try {
+      const result = await sendVoice({ data: { body } });
+      setLines((current) => [...(current ?? []), result.line, ...(result.reply ? [result.reply] : [])]);
+      onMemory(result.memory, result.memories);
+      if (!result.reply) setNote("Kept. The desk has no answer yet.");
+      return result.reply?.id ?? null;
+    } catch (error) {
+      setNote(errorText(error));
+      return null;
+    } finally {
+      setBusy(false);
     }
-    const recog = new Recognition();
-    recog.lang = "en";
-    recog.interimResults = false;
-    recog.onresult = (event) => {
-      const said = event.results[0]?.[0]?.transcript ?? "";
-      if (said) setDraft(said);
-    };
-    recog.onerror = () => setNote("Could not hear that. Write the line instead.");
-    recog.onend = () => setListening(false);
-    setListening(true);
-    recog.start();
   }
 
-  async function hear(lineId: string) {
+  function stopHear() {
+    audioRef.current?.pause();
+    audioRef.current = null;
+    setHearing(null);
+  }
+
+  async function hear(lineId: string, selected: VoiceId = "eve") {
     if (hearing) return;
     setHearing(lineId);
     setNote(null);
     try {
-      const result = await hearLine({ data: { lineId } });
+      const result = await hearLine({ data: { lineId, voiceId: selected } });
       if (!result.ok) {
         setNote(result.error);
         return;
       }
       const src = "url" in result && result.url ? result.url : `data:audio/mpeg;base64,${result.audio}`;
       const audio = new Audio(src);
+      audioRef.current = audio;
       await audio.play();
     } catch (error) {
       setNote(errorText(error));
@@ -351,7 +351,7 @@ function ChannelView({
       </div>
       <p className="px-5 pt-2 text-sm leading-relaxed text-mute">
         {channel === "desk" && "Write it here. A reply takes a few seconds."}
-        {channel === "voice" && "Speak, then hear it. Playback runs only when you tap Hear it."}
+        {channel === "voice" && "A browser call listens, answers aloud, then listens again. A phone call is not connected."}
         {channel === "mail" &&
           `A letter on ${alias || "your alias"}. Stored on this account. Not delivered.`}
         {channel === "text" && "A short line, kept here. Not sent to a phone."}
@@ -386,6 +386,9 @@ function ChannelView({
         {busy ? <p className="text-sm text-copper">The desk is writing…</p> : null}
         {note ? <p className="text-sm text-mute">{note}</p> : null}
       </div>
+      {channel === "voice" ? (
+        <VoiceCall busy={busy} onAsk={askVoice} onHear={hear} onStop={stopHear} />
+      ) : (
       <form
         className="border-t border-line px-5 py-4"
         onSubmit={(event) => {
@@ -402,26 +405,14 @@ function ChannelView({
             className="mb-2 w-full rounded-2xl border border-edge bg-card px-4 py-3 text-base text-cream outline-none placeholder:text-mute"
           />
         ) : null}
-        <div className="flex items-end gap-2">
-          {channel === "voice" ? (
-            <button
-              type="button"
-              onClick={speak}
-              className="grid size-12 shrink-0 place-items-center rounded-full border border-copper text-copper"
-              aria-label={listening ? "Listening" : "Speak"}
-            >
-              <Mic className="size-5" />
-            </button>
-          ) : null}
-          <textarea
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            rows={channel === "text" ? 2 : 3}
-            maxLength={channel === "text" ? 160 : channel === "mail" ? 4000 : 2000}
-            placeholder={card.hint}
-            className="min-h-12 w-full resize-none rounded-2xl border border-edge bg-card px-4 py-3 text-base text-cream outline-none placeholder:text-mute"
-          />
-        </div>
+        <textarea
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          rows={channel === "text" ? 2 : 3}
+          maxLength={channel === "text" ? 160 : channel === "mail" ? 4000 : 2000}
+          placeholder={card.hint}
+          className="min-h-12 w-full resize-none rounded-2xl border border-edge bg-card px-4 py-3 text-base text-cream outline-none placeholder:text-mute"
+        />
         <button
           type="submit"
           disabled={busy || !draft.trim()}
@@ -430,15 +421,7 @@ function ChannelView({
           {channel === "mail" ? "Keep the letter" : channel === "text" ? "Keep the line" : "Ask the desk"}
         </button>
       </form>
+      )}
     </div>
   );
 }
-
-type SpeechRec = {
-  lang: string;
-  interimResults: boolean;
-  start: () => void;
-  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-  onerror: (() => void) | null;
-  onend: (() => void) | null;
-};
