@@ -6,6 +6,7 @@ artifacts
 attachments
 .env
 .env.*
+!.env.example
 *.log
 .grok/*
 !.grok/app-env.json
