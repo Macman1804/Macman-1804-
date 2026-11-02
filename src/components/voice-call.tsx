@@ -38,6 +38,7 @@ export function VoiceCall({
   const [voice, setVoice] = useState<VoiceId>("eve");
   const [note, setNote] = useState<string | null>(null);
   const [heard, setHeard] = useState("");
+  const [pickingUp, setPickingUp] = useState(false);
   const [draft, setDraft] = useState("");
   const phaseRef = useRef<CallPhase>("idle");
   const live = useRef(false);
@@ -163,17 +164,26 @@ export function VoiceCall({
       }
       const level = Math.sqrt(sum / samples.length);
       const next = nextUtterance({ ...speechRef.current, level, frameMs: 100 });
+      if (next.heard !== speechRef.current.heard) setPickingUp(next.heard);
       speechRef.current = { heard: next.heard, quietMs: next.quietMs, bytes: speechRef.current.bytes };
       if (next.action === "wait") return;
-      flushRef.current = true;
-      taking.current = true;
-      const recorder = recorderRef.current;
-      if (recorder && recorder.state !== "inactive") recorder.stop();
-      else {
-        flushRef.current = false;
-        taking.current = false;
-      }
+      flushRecording();
     }, 100);
+  }
+
+  function flushRecording() {
+    if (!live.current || muted.current || taking.current) return;
+    setPickingUp(false);
+    flushRef.current = true;
+    taking.current = true;
+    const recorder = recorderRef.current;
+    if (recorder && recorder.state !== "inactive") {
+      recorder.stop();
+      return;
+    }
+    flushRef.current = false;
+    taking.current = false;
+    setNote("Nothing was recorded yet. Speak, then send it.");
   }
 
   async function turn(said: string) {
@@ -207,7 +217,9 @@ export function VoiceCall({
     setNote(null);
     setHeard("");
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
       streamRef.current = stream;
       const context = new AudioContext();
       await context.resume();
@@ -257,6 +269,7 @@ export function VoiceCall({
     live.current = false;
     muted.current = false;
     taking.current = false;
+    setPickingUp(false);
     releaseMic();
     onStop();
     apply({ type: "end" });
@@ -273,7 +286,12 @@ export function VoiceCall({
     <div className="border-t border-line px-5 py-4">
       <p className="text-xs font-medium tracking-widest text-copper uppercase">Browser call</p>
       <p className="mt-2 text-sm leading-relaxed text-mute">
-        {PHASE_LABEL[phase]}. Your microphone stays on this device. This is not a phone call.
+        {phase === "listening" && pickingUp
+          ? "Hearing you. Pause, or tap Send what I said."
+          : phase === "listening"
+            ? "Listening. Speak, then pause."
+            : `${PHASE_LABEL[phase]}.`}{" "}
+        Your microphone stays on this device. This is not a phone call.
       </p>
       {heard ? <p className="mt-3 text-base leading-relaxed text-cream">Heard: {heard}</p> : null}
       <label className="mt-3 block text-sm text-mute">
@@ -321,6 +339,15 @@ export function VoiceCall({
           </>
         )}
       </div>
+      {phase === "listening" ? (
+        <button
+          type="button"
+          onClick={flushRecording}
+          className="mt-2 min-h-12 w-full rounded-full border border-copper text-base text-copper"
+        >
+          Send what I said
+        </button>
+      ) : null}
       <form
         className="mt-3"
         onSubmit={(event) => {
