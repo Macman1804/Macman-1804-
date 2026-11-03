@@ -1,19 +1,22 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { TELEPHONE_PLAN, billingWebhook, changeSubscription, entitlement, meterUsage } from "./plans.ts";
+import { EMAIL_PHONE_PLAN, billingWebhook, changeSubscription, entitlement, meterUsage } from "./plans.ts";
 
-test("the desk stays free and the telephone price does not charge anyone", () => {
-  assert.equal(TELEPHONE_PLAN.priceUsd, 20);
-  assert.equal(TELEPHONE_PLAN.currency, "USD");
-  assert.equal(TELEPHONE_PLAN.interval, "month");
-  assert.equal(TELEPHONE_PLAN.billing, false);
-  assert.equal(TELEPHONE_PLAN.cardStored, false);
+test("the desk stays free and email plus phone do not charge anyone", () => {
+  assert.equal(EMAIL_PHONE_PLAN.priceUsd, 20);
+  assert.equal(EMAIL_PHONE_PLAN.currency, "USD");
+  assert.equal(EMAIL_PHONE_PLAN.interval, "month");
+  assert.equal(EMAIL_PHONE_PLAN.billing, false);
+  assert.equal(EMAIL_PHONE_PLAN.cardStored, false);
+  assert.deepEqual(EMAIL_PHONE_PLAN.covers, ["email", "phone"]);
   assert.equal(entitlement("desk").allowed, true);
+  assert.equal(entitlement("mail").allowed, true);
   assert.equal(entitlement("voice").billing, false);
   assert.equal(entitlement("phone").allowed, false);
-  assert.match(entitlement("phone").reason, /\$20/);
+  assert.match(entitlement("phone").reason, /Email and phone/);
+  assert.match(entitlement("outside_send").reason, /\$20/);
   assert.equal(entitlement("live_sms").allowed, false);
-  assert.equal(entitlement("outside_send").allowed, false);
+  assert.equal(entitlement("live_sms").reason.includes("$20"), false);
 });
 
 test("nobody can turn billing on, including for another account", () => {

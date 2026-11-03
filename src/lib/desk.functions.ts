@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabaseMiddleware } from "@/lib/supabase/middleware";
-import { TELEPHONE_PLAN } from "@/lib/billing/plans";
+import { EMAIL_PHONE_PLAN } from "@/lib/billing/plans";
 import { admit } from "@/lib/security/pace";
 import { twilioReadiness } from "@/lib/telephony/readiness";
 import {
@@ -282,13 +282,13 @@ export const getAccountDesk = createServerFn({ method: "GET" })
       sms: { mode: "simulated" as const, carrierDelivery: false as const, consentStored: false as const },
       usage: { available: count !== null, count },
       subscription: {
-        status: TELEPHONE_PLAN.id,
-        plan: TELEPHONE_PLAN.name,
-        price: TELEPHONE_PLAN.priceUsd,
-        currency: TELEPHONE_PLAN.currency,
-        interval: TELEPHONE_PLAN.interval,
-        billing: TELEPHONE_PLAN.billing,
-        cardStored: TELEPHONE_PLAN.cardStored,
+        status: EMAIL_PHONE_PLAN.id,
+        plan: EMAIL_PHONE_PLAN.name,
+        price: EMAIL_PHONE_PLAN.priceUsd,
+        currency: EMAIL_PHONE_PLAN.currency,
+        interval: EMAIL_PHONE_PLAN.interval,
+        billing: EMAIL_PHONE_PLAN.billing,
+        cardStored: EMAIL_PHONE_PLAN.cardStored,
       },
       memories,
     };

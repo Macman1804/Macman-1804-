@@ -1,27 +1,31 @@
 /** Price chosen by the account owner. Nothing is charged and no card is stored. */
-export const TELEPHONE_PLAN = {
-  id: "telephone_month",
-  name: "Telephone",
+export const EMAIL_PHONE_PLAN = {
+  id: "email_phone_month",
+  name: "Email and phone",
   priceUsd: 20,
   currency: "USD",
   interval: "month",
+  covers: ["email", "phone"],
   billing: false,
   cardStored: false,
 } as const;
 
 const DESK_FEATURES = new Set(["desk", "voice", "mail", "text"]);
-const LOCKED_FEATURES = new Set(["phone", "live_sms", "outside_send"]);
+const PLAN_FEATURES = new Set(["phone", "outside_send"]);
 
 export type Feature = "desk" | "voice" | "mail" | "text" | "phone" | "live_sms" | "outside_send";
 
-/** The desk keeps working. The telephone price is set, and no one is charged. */
+/** The desk keeps working. Email and phone are priced together, and no one is charged. */
 export function entitlement(feature: Feature): { allowed: boolean; billing: false; reason: string } {
-  if (LOCKED_FEATURES.has(feature)) {
+  if (PLAN_FEATURES.has(feature)) {
     return {
       allowed: false,
       billing: false,
-      reason: `The telephone plan is $${TELEPHONE_PLAN.priceUsd} a month. Nothing has been charged.`,
+      reason: `Email and phone are $${EMAIL_PHONE_PLAN.priceUsd} a month together. Nothing has been charged.`,
     };
+  }
+  if (feature === "live_sms") {
+    return { allowed: false, billing: false, reason: "Texts to a phone are not included. Nothing has been charged." };
   }
   if (DESK_FEATURES.has(feature)) {
     return { allowed: true, billing: false, reason: "Included on the desk. No charge." };
@@ -41,7 +45,7 @@ export function changeSubscription(input: {
   return {
     ok: false,
     billing: false,
-    reason: `The telephone plan is $${TELEPHONE_PLAN.priceUsd} a month. Nothing was charged. No card was taken.`,
+    reason: `Email and phone are $${EMAIL_PHONE_PLAN.priceUsd} a month. Nothing was charged. No card was taken.`,
   };
 }
 
