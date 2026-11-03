@@ -1,7 +1,10 @@
 import { createServerFn } from "@tanstack/react-start";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabaseMiddleware } from "@/lib/supabase/middleware";
+import { admit } from "@/lib/security/pace";
+import { twilioReadiness } from "@/lib/telephony/readiness";
 import {
+  countUsage,
   ensureAlias,
   forgetMemory,
   insertLine,
@@ -104,6 +107,14 @@ async function earlierLines(client: SupabaseClient, userId: string, channel: Cha
   return groups.flat();
 }
 
+const hits = new Map<string, number[]>();
+
+function pace(userId: string) {
+  const turn = admit(hits.get(userId) ?? [], Date.now(), 30, 10 * 60 * 1000);
+  hits.set(userId, turn.next);
+  if (!turn.ok) throw new Error("Wait a moment before the next line.");
+}
+
 async function answer(
   scope: Scope,
   channel: Channel,
@@ -113,6 +124,7 @@ async function answer(
 ) {
   const userId = scope.supabaseUserId;
   const client = scope.supabase;
+  pace(userId);
   await ensureAlias(client, userId, scope.supabaseEmail);
   const memories = await listMemories(client);
   const mailSubject = channel === "mail" ? subject || "Letter" : null;
@@ -212,6 +224,26 @@ export const forgetSavedMemory = createServerFn({ method: "POST" })
     return listMemories(scope.supabase);
   });
 
+export const getAccountDesk = createServerFn({ method: "GET" })
+  .middleware(guards)
+  .handler(async ({ context }) => {
+    const scope = context as unknown as Scope;
+    const alias = await ensureAlias(scope.supabase, scope.supabaseUserId, scope.supabaseEmail);
+    const memories = await listMemories(scope.supabase);
+    const phone = twilioReadiness();
+    const count = await countUsage(scope.supabase, scope.supabaseUserId);
+    return {
+      email: scope.supabaseEmail,
+      alias,
+      mailbox: { gmail: "not_configured" as const, outlook: "not_configured" as const, sending: "confirmation_required" as const },
+      phone: { configured: phone.configured, missing: phone.missing, callsEnabled: phone.callsEnabled, smsEnabled: phone.smsEnabled },
+      sms: { mode: "simulated" as const, carrierDelivery: false as const, consentStored: false as const },
+      usage: { available: count !== null, count },
+      subscription: { status: "not_chosen" as const, billing: false as const },
+      memories,
+    };
+  });
+
 function asked(input: { body: string; timeZone?: string }, limit: number) {
   const body = input?.body?.trim() ?? "";
   const timeZone = (input?.timeZone ?? "").trim();
@@ -263,9 +295,10 @@ export const saveText = createServerFn({ method: "POST" })
 
 export const practiceCarrier = createServerFn({ method: "POST" })
   .middleware(guards)
-  .validator((input: { kind?: string; body?: string; timeZone?: string; simulated?: boolean }) => {
+  .validator((input: { kind?: string; body?: string; timeZone?: string; simulated?: boolean; optedIn?: boolean }) => {
     if (input?.simulated !== true) throw new Error("Only a simulated line can be practiced.");
     if (input.kind !== "voice" && input.kind !== "sms") throw new Error("Unknown line.");
+    if (input.kind === "sms" && input.optedIn !== true) throw new Error("Opt in before a simulated text.");
     const limit = input.kind === "sms" ? LIMITS.text : LIMITS.voice;
     return { kind: input.kind, ...asked({ body: input.body ?? "", timeZone: input.timeZone }, limit) };
   })

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Mail, MessageSquare, Mic, Pencil, Volume2 } from "lucide-react";
 import { AccountGate, signOutMacman, useMacmanSession } from "@/components/account-gate";
+import { AccountDesk } from "@/components/account-desk";
 import { VoiceCall } from "@/components/voice-call";
 import { UserButton } from "@/lib/auth/gates";
 import { useCurrentUser } from "@/lib/auth/use-current-user";
@@ -18,7 +19,7 @@ import {
 import type { Channel, DeskHome, Line, SavedMemory } from "@/lib/desk-types";
 import type { VoiceId } from "@/lib/voice/voices";
 
-type View = "home" | Channel;
+type View = "home" | "account" | Channel;
 
 const CARDS: { id: Channel; title: string; hint: string; icon: typeof Pencil }[] = [
   { id: "desk", title: "Desk", hint: "Write it here", icon: Pencil },
@@ -103,6 +104,7 @@ export function DeskApp() {
           home={home}
           error={homeError}
           onOpen={setView}
+          onAccount={() => setView("account")}
           onMemories={(memories) =>
             setHome((current) =>
               current
@@ -111,6 +113,8 @@ export function DeskApp() {
             )
           }
         />
+      ) : view === "account" ? (
+        <AccountDesk onBack={() => setView("home")} />
       ) : (
         <ChannelView
           channel={view}
@@ -131,11 +135,13 @@ function Home({
   home,
   error,
   onOpen,
+  onAccount,
   onMemories,
 }: {
   home: DeskHome | null;
   error: string | null;
-  onOpen: (view: View) => void;
+  onOpen: (view: Channel) => void;
+  onAccount: () => void;
   onMemories: (memories: SavedMemory[]) => void;
 }) {
   const [removing, setRemoving] = useState<string | null>(null);
@@ -219,6 +225,9 @@ function Home({
       </div>
       <div className="mt-10 flex items-center justify-between text-sm text-mute">
         <UserButton />
+        <button type="button" onClick={onAccount} className="min-h-11">
+          Account
+        </button>
         <button type="button" onClick={() => void signOutMacman()} className="min-h-11">
           Sign out
         </button>
@@ -245,6 +254,7 @@ function ChannelView({
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [hearing, setHearing] = useState<string | null>(null);
+  const [optedIn, setOptedIn] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
@@ -267,6 +277,10 @@ function ChannelView({
   async function submit() {
     const body = draft.trim();
     if (!body || busy) return;
+    if (channel === "text" && !optedIn && body.toUpperCase() !== "STOP") {
+      setNote("Opt in before a simulated text. STOP is always accepted.");
+      return;
+    }
     setBusy(true);
     setNote(null);
     try {
@@ -387,8 +401,9 @@ function ChannelView({
         {channel === "desk" && "Write it here. A reply takes a few seconds."}
         {channel === "voice" && "A browser call listens, answers aloud, then listens again. A phone call is not connected."}
         {channel === "mail" &&
-          `A letter on ${alias || "your alias"}. Answered here. Not delivered to an outside inbox.`}
-        {channel === "text" && "A short line, answered here. Two-way SMS is prepared and switched off. Not sent to a phone."}
+          `A letter on ${alias || "your alias"}. Answered here. An outside inbox is not connected, and nothing is sent without your confirmation.`}
+        {channel === "text" &&
+          "A short line, answered here. Simulated only. Reply STOP to opt out. Nothing is sent to a phone."}
       </p>
       <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-5 py-6">
         {lines === null ? (
@@ -430,6 +445,17 @@ function ChannelView({
           void submit();
         }}
       >
+        {channel === "text" ? (
+          <label className="mb-2 flex min-h-11 items-start gap-3 text-sm leading-relaxed text-cream">
+            <input
+              type="checkbox"
+              checked={optedIn}
+              onChange={(event) => setOptedIn(event.target.checked)}
+              className="mt-1 size-4"
+            />
+            Allow simulated texts on this account. STOP opts out. Nothing is sent to a phone.
+          </label>
+        ) : null}
         {channel === "mail" ? (
           <input
             value={subject}

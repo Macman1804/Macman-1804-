@@ -190,6 +190,15 @@ export async function writeMemory(
   return trimmed;
 }
 
+export async function countUsage(client: SupabaseClient, userId: string): Promise<number | null> {
+  const rows = await client
+    .from("usage_events")
+    .select("id", { count: "exact", head: true })
+    .eq("subscriber_id", userId);
+  if (rows.error) return null;
+  return rows.count ?? 0;
+}
+
 export async function recordUsage(
   client: SupabaseClient,
   userId: string,
