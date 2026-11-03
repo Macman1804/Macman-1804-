@@ -22,6 +22,14 @@ export function unpackBody(channel: Channel, content: string): { body: string; s
   return { body: content.slice(split + 1), subject };
 }
 
+export function appChannel(dbChannel: string): Channel | null {
+  if (dbChannel === "web") return "desk";
+  if (dbChannel === "voice") return "voice";
+  if (dbChannel === "email") return "mail";
+  if (dbChannel === "sms") return "text";
+  return null;
+}
+
 export function replySubject(subject: string | null): string {
   const base = (subject ?? "Letter").replace(/^re:\s*/i, "").trim() || "Letter";
   return `Re: ${base}`.slice(0, 120);

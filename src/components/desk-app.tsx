@@ -385,7 +385,7 @@ function ChannelView({
               </p>
               {line.subject ? <p className="mt-1 text-sm text-mute">{line.subject}</p> : null}
               <p className="mt-1 text-base leading-relaxed whitespace-pre-wrap">{line.body}</p>
-              {channel === "voice" && line.role === "macman" ? (
+              {line.role === "macman" ? (
                 <button
                   type="button"
                   onClick={() => hear(line.id)}
