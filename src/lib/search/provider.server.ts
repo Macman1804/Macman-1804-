@@ -1,6 +1,7 @@
-import { SEARCH_MODEL, checkAgainstSources, isMarketQuote, parseSearchPayload, type LiveSource } from "@/lib/search/live";
+import { SEARCH_MODEL, checkAgainstSources, isMarketQuote, isNewsQuery, parseSearchPayload, presentNews, type LiveSource } from "@/lib/search/live";
 import { searchEvent, type SearchStage } from "@/lib/search/diagnose";
 import { marketCoin, presentMarketFeed } from "@/lib/search/market";
+import { NAME_A_CITY, isWeatherQuery, presentWeather, weatherPlace } from "@/lib/search/weather";
 
 function note(stage: SearchStage, status: number | null = null) {
   console.info(JSON.stringify(searchEvent(stage, status)));
@@ -60,9 +61,52 @@ async function readPublicPage(start: string): Promise<string | null> {
   return null;
 }
 
+async function weatherLookup(query: string): Promise<{ ok: true; body: string; sources: LiveSource[] } | { ok: false }> {
+  const place = weatherPlace(query);
+  if (!place) {
+    note("weather_ok");
+    return { ok: true, body: NAME_A_CITY, sources: [] };
+  }
+  try {
+    const geoRes = await fetch(
+      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(place)}&count=1&language=en&format=json`,
+      { signal: AbortSignal.timeout(8000), headers: { Accept: "application/json" } },
+    );
+    if (!geoRes.ok) {
+      note("weather_unavailable", geoRes.status);
+      return { ok: false };
+    }
+    const geo = (await geoRes.json()) as { results?: { name?: unknown; admin1?: unknown; latitude?: unknown; longitude?: unknown }[] };
+    const hit = geo.results?.[0];
+    if (!hit || typeof hit.latitude !== "number" || typeof hit.longitude !== "number" || typeof hit.name !== "string") {
+      note("weather_unavailable", geoRes.status);
+      return { ok: false };
+    }
+    const forecast = await fetch(
+      `https://api.open-meteo.com/v1/forecast?latitude=${hit.latitude}&longitude=${hit.longitude}&current=temperature_2m,weather_code&temperature_unit=fahrenheit&timezone=auto`,
+      { signal: AbortSignal.timeout(8000), headers: { Accept: "application/json" } },
+    );
+    if (!forecast.ok) {
+      note("weather_unavailable", forecast.status);
+      return { ok: false };
+    }
+    const shown = presentWeather({
+      name: hit.name,
+      region: typeof hit.admin1 === "string" ? hit.admin1 : null,
+      payload: await forecast.json(),
+    });
+    note(shown.ok ? "weather_ok" : "weather_unavailable", forecast.status);
+    return shown;
+  } catch {
+    note("weather_unavailable");
+    return { ok: false };
+  }
+}
+
 export async function liveSearch(
   query: string,
 ): Promise<{ ok: true; body: string; sources: LiveSource[] } | { ok: false }> {
+  if (isWeatherQuery(query)) return weatherLookup(query);
   const coin = marketCoin(query);
   if (coin) {
     try {
@@ -127,8 +171,8 @@ export async function liveSearch(
       })),
     );
     if (pages.every((page) => !page.text.trim())) note("page_unreadable");
-    const checked = checkAgainstSources(parsed.body, pages);
-    if (!checked.ok) note(isMarketQuote(query) ? "price_not_on_page" : "provider_parse");
+    const checked = isNewsQuery(query) ? presentNews(parsed.body, pages) : checkAgainstSources(parsed.body, pages);
+    if (!checked.ok) note(isNewsQuery(query) ? "news_unreadable" : isMarketQuote(query) ? "price_not_on_page" : "provider_parse");
     else note("verified");
     return checked;
   } catch {

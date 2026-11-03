@@ -259,6 +259,29 @@ export function checkAgainstSources(
   };
 }
 
+/** News is shown only when a retrieved page has readable text. */
+export function presentNews(
+  body: string,
+  pages: readonly { url: string; text: string }[],
+): { ok: true; body: string; sources: LiveSource[] } | { ok: false } {
+  const [prose, listed = ""] = body.split("\n\nSources\n");
+  const readable = httpsOnly(listed.split("\n")).filter((url) => {
+    const text = pages.find((page) => originalSource(page.url) === url)?.text ?? "";
+    return text.replace(/\s+/g, " ").trim().length >= 80;
+  });
+  const clean = cleanProse(prose ?? "");
+  if (!clean || readable.length === 0) return { ok: false };
+  return {
+    ok: true,
+    sources: readable.map((url) => ({ url })),
+    body: `${clean}\n\nSources\n${readable.join("\n")}`,
+  };
+}
+
+export function isNewsQuery(query: string): boolean {
+  return /\b(news|headline|headlines)\b/i.test(query);
+}
+
 export function spokenText(body: string): string {
   return stripMarkers(body.split(/\n\nSources\n/)[0] ?? "").replace(/\s+/g, " ").trim();
 }

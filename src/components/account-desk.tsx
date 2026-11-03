@@ -41,6 +41,9 @@ export function AccountDesk({ onBack }: { onBack: () => void }) {
             <p className="text-xs tracking-widest text-copper uppercase">Connected services</p>
             <p className="mt-1 text-mute">Gmail is not connected. Outlook is not connected.</p>
             <p className="text-mute">An outside letter can be drafted here. Sending it needs your confirmation, and that step is off.</p>
+            <p className="text-mute">
+              Bitcoin and Ethereum prices come from CoinGecko. Stocks are not connected. Weather comes from Open-Meteo. News is shown only from a page that could be read.
+            </p>
           </section>
           <section>
             <p className="text-xs tracking-widest text-copper uppercase">Phone</p>
