@@ -6,6 +6,7 @@ const SPANISH: Record<string, string> = {
   "That email already has an account. Sign in instead.": "Ese correo ya tiene una cuenta. Entra en su lugar.",
   "Wait a moment before the next line.": "Espera un momento antes de la siguiente línea.",
   "Write a shorter line.": "Escribe una línea más corta.",
+  "That language is not supported.": "Ese idioma no está admitido.",
   "Keep the letter shorter.": "Acorta la carta.",
   "Keep it to one short line.": "Déjala en una línea corta.",
   "Unknown line.": "Línea desconocida.",

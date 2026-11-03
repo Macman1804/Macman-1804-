@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Mail, MessageSquare, Mic, Pencil, Volume2 } from "lucide-react";
+import { Languages, Mail, MessageSquare, Mic, Pencil, Volume2 } from "lucide-react";
 import { AccountGate, signOutMacman, useMacmanSession } from "@/components/account-gate";
 import { AccountDesk } from "@/components/account-desk";
 import { LanguageSwitch, useI18n } from "@/lib/i18n/provider";
@@ -7,6 +7,7 @@ import type { Copy } from "@/lib/i18n/catalog";
 import type { Lang } from "@/lib/i18n/language";
 import { SportsDesk } from "@/components/sports-desk";
 import { TradingDesk } from "@/components/trading-desk";
+import { TranslatorDesk } from "@/components/translator-desk";
 import { VoiceCall } from "@/components/voice-call";
 import { UserButton } from "@/lib/auth/gates";
 import { useCurrentUser } from "@/lib/auth/use-current-user";
@@ -25,7 +26,7 @@ import type { Channel, DeskHome, Line, SavedMemory } from "@/lib/desk-types";
 import { publicError } from "@/lib/security/public-error";
 import type { VoiceId } from "@/lib/voice/voices";
 
-type View = "home" | "account" | "trading" | "sports" | Channel;
+type View = "home" | "account" | "trading" | "sports" | "translator" | Channel;
 
 const CARDS: { id: Channel; title: string; hint: string; icon: typeof Pencil }[] = [
   { id: "desk", title: "Desk", hint: "Write it here", icon: Pencil },
@@ -124,6 +125,7 @@ export function DeskApp() {
           onOpen={(channel) => setView(channel)}
           onTrade={() => setView("trading")}
           onSports={() => setView("sports")}
+          onTranslate={() => setView("translator")}
           onAccount={() => setView("account")}
           onMemories={(memories) =>
             setHome((current) =>
@@ -139,6 +141,8 @@ export function DeskApp() {
         <TradingDesk onBack={() => setView("home")} />
       ) : view === "sports" ? (
         <SportsDesk onBack={() => setView("home")} />
+      ) : view === "translator" ? (
+        <TranslatorDesk onBack={() => setView("home")} />
       ) : (
         <ChannelView
           channel={view}
@@ -161,6 +165,7 @@ function Home({
   onOpen,
   onTrade,
   onSports,
+  onTranslate,
   onAccount,
   onMemories,
 }: {
@@ -169,6 +174,7 @@ function Home({
   onOpen: (view: Channel) => void;
   onTrade: () => void;
   onSports: () => void;
+  onTranslate: () => void;
   onAccount: () => void;
   onMemories: (memories: SavedMemory[]) => void;
 }) {
@@ -262,6 +268,17 @@ function Home({
           );
         })}
       </div>
+      <button
+        type="button"
+        onClick={onTranslate}
+        className="mt-3 flex min-h-20 items-center gap-4 rounded-3xl border-2 border-transparent bg-card px-5 py-4 text-left"
+      >
+        <Languages className="size-6 shrink-0 text-copper" strokeWidth={1.75} />
+        <span>
+          <span className="block text-lg font-medium leading-tight">{t.translator}</span>
+          <span className="mt-1 block text-sm text-mute">{t.translatorHint}</span>
+        </span>
+      </button>
       <div className="mt-3 grid grid-cols-2 gap-3">
         <button type="button" onClick={onTrade} className="min-h-20 rounded-3xl border-2 border-transparent bg-card px-4 py-4 text-left">
           <span className="block text-lg font-medium">{t.trading}</span>

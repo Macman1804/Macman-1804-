@@ -72,6 +72,7 @@ export function AccountDesk({ onBack }: { onBack: () => void }) {
           <section>
             <p className="text-xs tracking-widest text-copper uppercase">{t.languageSetting}</p>
             <p className="mt-1 text-mute">{t.languageHelp}</p>
+            <p className="text-mute">{t.translatePrivacy}</p>
           </section>
           <section>
             <p className="text-xs tracking-widest text-copper uppercase">{t.subscription}</p>
