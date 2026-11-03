@@ -1,4 +1,10 @@
 import { SEARCH_MODEL, checkAgainstSources, isMarketQuote, parseSearchPayload, type LiveSource } from "@/lib/search/live";
+import { searchEvent, type SearchStage } from "@/lib/search/diagnose";
+import { marketCoin, presentMarketFeed } from "@/lib/search/market";
+
+function note(stage: SearchStage, status: number | null = null) {
+  console.info(JSON.stringify(searchEvent(stage, status)));
+}
 
 function safeHttps(value: string): string | null {
   try {
@@ -57,8 +63,30 @@ async function readPublicPage(start: string): Promise<string | null> {
 export async function liveSearch(
   query: string,
 ): Promise<{ ok: true; body: string; sources: LiveSource[] } | { ok: false }> {
+  const coin = marketCoin(query);
+  if (coin) {
+    try {
+      const res = await fetch(
+        `https://api.coingecko.com/api/v3/simple/price?ids=${coin}&vs_currencies=usd&include_last_updated_at=true`,
+        { signal: AbortSignal.timeout(8000), headers: { Accept: "application/json" } },
+      );
+      if (!res.ok) {
+        note("market_unavailable", res.status);
+        return { ok: false };
+      }
+      const shown = presentMarketFeed(coin, await res.json());
+      note(shown.ok ? "market_ok" : "market_unavailable", res.status);
+      return shown;
+    } catch {
+      note("market_unavailable");
+      return { ok: false };
+    }
+  }
   const apiKey = process.env.XAI_API_KEY;
-  if (!apiKey || !query) return { ok: false };
+  if (!apiKey || !query) {
+    note("no_key");
+    return { ok: false };
+  }
   const market = isMarketQuote(query);
   try {
     const res = await fetch("https://api.x.ai/v1/responses", {
@@ -83,17 +111,28 @@ export async function liveSearch(
         tools: [{ type: "web_search" }],
       }),
     });
-    if (!res.ok) return { ok: false };
+    if (!res.ok) {
+      note("provider_http", res.status);
+      return { ok: false };
+    }
     const parsed = parseSearchPayload(await res.json());
-    if (!parsed.ok) return parsed;
+    if (!parsed.ok) {
+      note("provider_parse", res.status);
+      return parsed;
+    }
     const pages = await Promise.all(
       parsed.sources.slice(0, 3).map(async (source) => ({
         url: source.url,
         text: (await readPublicPage(source.url)) ?? "",
       })),
     );
-    return checkAgainstSources(parsed.body, pages);
+    if (pages.every((page) => !page.text.trim())) note("page_unreadable");
+    const checked = checkAgainstSources(parsed.body, pages);
+    if (!checked.ok) note(isMarketQuote(query) ? "price_not_on_page" : "provider_parse");
+    else note("verified");
+    return checked;
   } catch {
+    note("provider_http");
     return { ok: false };
   }
 }
