@@ -6,6 +6,7 @@ import { reduceCall, type CallPhase } from "@/lib/voice/call-machine";
 import { MIN_BYTES, nextUtterance } from "@/lib/voice/utterance";
 import { VOICES, voiceId, type VoiceId } from "@/lib/voice/voices";
 import { futureGrokCall } from "@/lib/telephony/line";
+import { PhoneTranslate } from "@/components/phone-translate";
 import { useI18n } from "@/lib/i18n/provider";
 
 function recorderMime(): string {
@@ -439,6 +440,7 @@ export function VoiceCall({
         </button>
         <p className="mt-2 text-sm leading-relaxed text-mute">{t.practiceStays}</p>
       </div>
+      <PhoneTranslate />
     </div>
   );
 }

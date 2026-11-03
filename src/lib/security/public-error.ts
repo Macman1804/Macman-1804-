@@ -10,6 +10,7 @@ const SPANISH: Record<string, string> = {
   "Keep the letter shorter.": "Acorta la carta.",
   "Keep it to one short line.": "Déjala en una línea corta.",
   "Unknown line.": "Línea desconocida.",
+  "Only a simulated call can be practiced.": "Solo se puede practicar una llamada simulada.",
   "That memory is already gone.": "Esa memoria ya no está.",
   "Nothing to hear.": "No hay nada que escuchar.",
   "Voice is not available right now.": "La voz no está disponible ahora.",
