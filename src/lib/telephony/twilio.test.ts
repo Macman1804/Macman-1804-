@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   callerIdFor,
+  handleInboundSms,
+  handleInboundVoice,
   inboundDecision,
   isE164,
   outboundCallRequest,
@@ -99,4 +101,37 @@ test("inbound and outbound calls are refused before any request is sent", () => 
     outboundCallRequest({ to: "+15551212002", from: "+15551212001", webhookUrl: "http://example.com/voice" }),
     null,
   );
+});
+
+test("voice and SMS webhooks refuse a signed request and place nothing", async () => {
+  const saved = ["TWILIO_ACCOUNT_SID", "TWILIO_API_KEY_SID", "TWILIO_API_KEY_SECRET", "TWILIO_AUTH_TOKEN"].map(
+    (name) => [name, process.env[name]] as const,
+  );
+  const token = "test-auth-token";
+  for (const [name] of saved) process.env[name] = "present";
+  process.env.TWILIO_AUTH_TOKEN = token;
+  try {
+    const url = "https://example.com/api/twilio/voice";
+    const params = { CallSid: "CA123", From: "+15551212000" };
+    const body = new URLSearchParams(params).toString();
+    const signature = twilioSignature(url, params, token);
+    const voice = await handleInboundVoice(
+      new Request(url, { method: "POST", headers: { "x-twilio-signature": signature }, body }),
+    );
+    const sms = await handleInboundSms(
+      new Request("https://example.com/api/twilio/sms", {
+        method: "POST",
+        headers: { "x-twilio-signature": "nope" },
+        body: "Body=hello",
+      }),
+    );
+    assert.equal(voice.status, 403);
+    assert.equal(sms.status, 403);
+    assert.equal(await voice.text(), "Macman telephone is not enabled.");
+  } finally {
+    for (const [name, value] of saved) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
 });

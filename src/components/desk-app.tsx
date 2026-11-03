@@ -9,6 +9,7 @@ import {
   getDesk,
   hearLine,
   listLines,
+  practiceCarrier,
   saveMail,
   saveText,
   sendDesk,
@@ -301,6 +302,23 @@ function ChannelView({
     }
   }
 
+  async function practiceVoice(body: string): Promise<void> {
+    setBusy(true);
+    setNote(null);
+    try {
+      const result = await practiceCarrier({
+        data: { kind: "voice", body, simulated: true, timeZone: localZone() },
+      });
+      setLines((current) => [...(current ?? []), result.line, ...(result.reply ? [result.reply] : [])]);
+      onMemory(result.memory, result.memories);
+      setNote("Simulated. Nothing was dialed.");
+    } catch (error) {
+      setNote(errorText(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function askVoice(body: string): Promise<string | null> {
     setBusy(true);
     setNote(null);
@@ -370,7 +388,7 @@ function ChannelView({
         {channel === "voice" && "A browser call listens, answers aloud, then listens again. A phone call is not connected."}
         {channel === "mail" &&
           `A letter on ${alias || "your alias"}. Answered here. Not delivered to an outside inbox.`}
-        {channel === "text" && "A short line, answered here. Not sent to a phone."}
+        {channel === "text" && "A short line, answered here. Two-way SMS is prepared and switched off. Not sent to a phone."}
       </p>
       <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-5 py-6">
         {lines === null ? (
@@ -403,7 +421,7 @@ function ChannelView({
         {note ? <p className="text-sm text-mute">{note}</p> : null}
       </div>
       {channel === "voice" ? (
-        <VoiceCall busy={busy} onAsk={askVoice} onHear={hear} onStop={stopHear} />
+        <VoiceCall busy={busy} onAsk={askVoice} onPractice={practiceVoice} onHear={hear} onStop={stopHear} />
       ) : (
       <form
         className="border-t border-line px-5 py-4"

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Mic, MicOff, PhoneOff } from "lucide-react";
 import { transcribeSpeech } from "@/lib/desk.functions";
+import { SETUP_CHECKLIST } from "@/lib/telephony/exchange";
 import { reduceCall, type CallPhase } from "@/lib/voice/call-machine";
 import { MIN_BYTES, nextUtterance } from "@/lib/voice/utterance";
 import { VOICES, voiceId, type VoiceId } from "@/lib/voice/voices";
@@ -24,11 +25,13 @@ function recorderMime(): string {
 export function VoiceCall({
   busy,
   onAsk,
+  onPractice,
   onHear,
   onStop,
 }: {
   busy: boolean;
   onAsk: (body: string) => Promise<string | null>;
+  onPractice: (body: string) => Promise<void>;
   onHear: (lineId: string, voice: VoiceId) => Promise<void>;
   onStop: () => void;
 }) {
@@ -379,8 +382,31 @@ export function VoiceCall({
       <div className="mt-4 rounded-2xl border border-edge bg-card px-4 py-3">
         <p className="text-xs font-medium tracking-widest text-copper uppercase">Telephone</p>
         <p className="mt-2 text-sm leading-relaxed text-mute">
-          Not connected. Twilio is prepared on the server, but no credentials are stored, no number is attached, and no call is placed.
+          Not connected. No credentials are stored, no number is attached, and no call or text is sent.
         </p>
+        <ol className="mt-3 flex flex-col gap-2">
+          {SETUP_CHECKLIST.map((step, index) => (
+            <li key={step.id} className="text-sm leading-relaxed text-mute">
+              <span className="text-copper">{index + 1}. {step.title}. </span>
+              {step.detail}
+            </li>
+          ))}
+        </ol>
+        <button
+          type="button"
+          disabled={busy || !draft.trim()}
+          onClick={() => {
+            const body = draft.trim();
+            if (!body) return;
+            setDraft("");
+            setHeard(body);
+            void onPractice(body);
+          }}
+          className="mt-3 min-h-12 w-full rounded-full border border-copper text-base text-copper disabled:opacity-50"
+        >
+          Practice on the desk
+        </button>
+        <p className="mt-2 text-sm leading-relaxed text-mute">This practice stays in your voice memory. It is not a telephone call.</p>
       </div>
     </div>
   );

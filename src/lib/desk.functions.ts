@@ -261,6 +261,30 @@ export const saveText = createServerFn({ method: "POST" })
     answer(context as unknown as Scope, "text", data.body, data.timeZone, null),
   );
 
+export const practiceCarrier = createServerFn({ method: "POST" })
+  .middleware(guards)
+  .validator((input: { kind?: string; body?: string; timeZone?: string; simulated?: boolean }) => {
+    if (input?.simulated !== true) throw new Error("Only a simulated line can be practiced.");
+    if (input.kind !== "voice" && input.kind !== "sms") throw new Error("Unknown line.");
+    const limit = input.kind === "sms" ? LIMITS.text : LIMITS.voice;
+    return { kind: input.kind, ...asked({ body: input.body ?? "", timeZone: input.timeZone }, limit) };
+  })
+  .handler(async ({ context, data }) => {
+    const channel = data.kind === "sms" ? "text" : "voice";
+    const result = await answer(context as unknown as Scope, channel, data.body, data.timeZone);
+    return {
+      simulated: true as const,
+      delivered: false as const,
+      live: "off" as const,
+      status: "simulated" as const,
+      channel,
+      line: result.line,
+      reply: result.reply,
+      memory: result.memory,
+      memories: result.memories,
+    };
+  });
+
 const AUDIO_TYPES = new Set(["audio/webm", "audio/mp4", "audio/ogg", "audio/mpeg", "audio/wav", "audio/x-m4a"]);
 
 export const transcribeSpeech = createServerFn({ method: "POST" })

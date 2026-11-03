@@ -1,4 +1,8 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { callerIdFor, isE164 } from "./exchange.ts";
+
+export { callerIdFor, isE164 };
+export type { PhoneAssignment } from "./exchange.ts";
 
 function serverEnv(key: string): string | undefined {
   const value = process.env[key]?.trim();
@@ -13,39 +17,22 @@ export const TWILIO_SECRET_NAMES = [
   "TWILIO_AUTH_TOKEN",
 ] as const;
 
-const E164 = /^\+[1-9]\d{7,14}$/;
-
 export type TwilioReadiness = {
   configured: boolean;
   missing: string[];
   callsEnabled: false;
+  smsEnabled: false;
 };
 
-export type PhoneAssignment = {
-  subscriberId: string;
-  e164: string;
-};
-
-/** Credentials are absent until the server environment has every name. Calls stay off. */
+/** Credentials may be present later. Calls and texts stay off regardless. */
 export function twilioReadiness(): TwilioReadiness {
   const missing = TWILIO_SECRET_NAMES.filter((name) => !serverEnv(name));
-  return { configured: missing.length === 0, missing: [...missing], callsEnabled: false };
-}
-
-export function isE164(value: string): boolean {
-  return E164.test(value);
-}
-
-/** A subscriber number wins. A shared number is only a fallback. Neither is purchased here. */
-export function callerIdFor(
-  subscriberId: string,
-  assignments: readonly PhoneAssignment[],
-  shared: string | null,
-): string | null {
-  const own = assignments.find((row) => row.subscriberId === subscriberId)?.e164 ?? null;
-  if (own && isE164(own)) return own;
-  if (shared && isE164(shared)) return shared;
-  return null;
+  return {
+    configured: missing.length === 0,
+    missing: [...missing],
+    callsEnabled: false,
+    smsEnabled: false,
+  };
 }
 
 export function twilioSignature(url: string, params: Record<string, string>, authToken: string): string {
@@ -108,24 +95,36 @@ export function outboundCallRequest(input: { to: string; from: string; webhookUr
   return { url: "https://api.twilio.com/2010-04-01/Accounts/{AccountSid}/Calls.json", body };
 }
 
-export async function handleInboundVoice(request: Request): Promise<Response> {
-  const readiness = twilioReadiness();
-  if (!readiness.configured) {
-    return new Response("Macman telephone is not enabled.", { status: 403 });
+const CLOSED = "Macman telephone is not enabled.";
+
+async function refuseWebhook(request: Request): Promise<Response> {
+  try {
+    const readiness = twilioReadiness();
+    if (!readiness.configured || readiness.callsEnabled || readiness.smsEnabled) {
+      return new Response(CLOSED, { status: 403 });
+    }
+    const token = serverEnv("TWILIO_AUTH_TOKEN") ?? "";
+    const signature = request.headers.get("x-twilio-signature") ?? "";
+    const params = Object.fromEntries(new URLSearchParams(await request.text()));
+    const url = serverEnv("TWILIO_WEBHOOK_URL") ?? request.url;
+    const valid = token.length > 0 && signaturesMatch(twilioSignature(url, params, token), signature);
+    const decision = inboundDecision({
+      configured: true,
+      callsEnabled: false,
+      signatureValid: valid,
+      ownerId: null,
+    });
+    if (decision.action !== "reject") return new Response(CLOSED, { status: 403 });
+    return new Response(CLOSED, { status: 403 });
+  } catch {
+    return new Response(CLOSED, { status: 403 });
   }
-  const token = serverEnv("TWILIO_AUTH_TOKEN");
-  const signature = request.headers.get("x-twilio-signature") ?? "";
-  const params = Object.fromEntries(new URLSearchParams(await request.text()));
-  const url = serverEnv("TWILIO_WEBHOOK_URL") ?? request.url;
-  const valid = Boolean(token) && signaturesMatch(twilioSignature(url, params, token ?? ""), signature);
-  const decision = inboundDecision({
-    configured: true,
-    callsEnabled: false,
-    signatureValid: valid,
-    ownerId: null,
-  });
-  if (decision.action === "reject") {
-    return new Response("Macman telephone is not enabled.", { status: 403 });
-  }
-  return new Response("Macman telephone is not enabled.", { status: 403 });
+}
+
+export function handleInboundVoice(request: Request): Promise<Response> {
+  return refuseWebhook(request);
+}
+
+export function handleInboundSms(request: Request): Promise<Response> {
+  return refuseWebhook(request);
 }
