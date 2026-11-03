@@ -4,7 +4,6 @@ import { transcribeSpeech } from "@/lib/desk.functions";
 import { reduceCall, type CallPhase } from "@/lib/voice/call-machine";
 import { MIN_BYTES, nextUtterance } from "@/lib/voice/utterance";
 import { VOICES, voiceId, type VoiceId } from "@/lib/voice/voices";
-import { telephoneLine } from "@/lib/telephony/line";
 
 const PHASE_LABEL: Record<CallPhase, string> = {
   idle: "Browser call is ready",
@@ -33,7 +32,6 @@ export function VoiceCall({
   onHear: (lineId: string, voice: VoiceId) => Promise<void>;
   onStop: () => void;
 }) {
-  const line = telephoneLine();
   const [phase, setPhaseState] = useState<CallPhase>("idle");
   const [voice, setVoice] = useState<VoiceId>("eve");
   const [note, setNote] = useState<string | null>(null);
@@ -381,7 +379,7 @@ export function VoiceCall({
       <div className="mt-4 rounded-2xl border border-edge bg-card px-4 py-3">
         <p className="text-xs font-medium tracking-widest text-copper uppercase">Telephone</p>
         <p className="mt-2 text-sm leading-relaxed text-mute">
-          Not connected. A phone call still needs {line.missing.join(", ")}. None of those are turned on, and no call is placed.
+          Not connected. Twilio is prepared on the server, but no credentials are stored, no number is attached, and no call is placed.
         </p>
       </div>
     </div>
