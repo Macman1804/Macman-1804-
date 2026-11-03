@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { Mail, MessageSquare, Mic, Pencil, Volume2 } from "lucide-react";
 import { AccountGate, signOutMacman, useMacmanSession } from "@/components/account-gate";
 import { AccountDesk } from "@/components/account-desk";
+import { SportsDesk } from "@/components/sports-desk";
+import { TradingDesk } from "@/components/trading-desk";
 import { VoiceCall } from "@/components/voice-call";
 import { UserButton } from "@/lib/auth/gates";
 import { useCurrentUser } from "@/lib/auth/use-current-user";
@@ -20,7 +22,7 @@ import type { Channel, DeskHome, Line, SavedMemory } from "@/lib/desk-types";
 import { publicError } from "@/lib/security/public-error";
 import type { VoiceId } from "@/lib/voice/voices";
 
-type View = "home" | "account" | Channel;
+type View = "home" | "account" | "trading" | "sports" | Channel;
 
 const CARDS: { id: Channel; title: string; hint: string; icon: typeof Pencil }[] = [
   { id: "desk", title: "Desk", hint: "Write it here", icon: Pencil },
@@ -111,6 +113,8 @@ export function DeskApp() {
           home={home}
           error={homeError}
           onOpen={setView}
+          onTrade={() => setView("trading")}
+          onSports={() => setView("sports")}
           onAccount={() => setView("account")}
           onMemories={(memories) =>
             setHome((current) =>
@@ -122,6 +126,10 @@ export function DeskApp() {
         />
       ) : view === "account" ? (
         <AccountDesk onBack={() => setView("home")} />
+      ) : view === "trading" ? (
+        <TradingDesk onBack={() => setView("home")} />
+      ) : view === "sports" ? (
+        <SportsDesk onBack={() => setView("home")} />
       ) : (
         <ChannelView
           channel={view}
@@ -142,12 +150,16 @@ function Home({
   home,
   error,
   onOpen,
+  onTrade,
+  onSports,
   onAccount,
   onMemories,
 }: {
   home: DeskHome | null;
   error: string | null;
   onOpen: (view: Channel) => void;
+  onTrade: () => void;
+  onSports: () => void;
   onAccount: () => void;
   onMemories: (memories: SavedMemory[]) => void;
 }) {
@@ -229,6 +241,16 @@ function Home({
             </button>
           );
         })}
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        <button type="button" onClick={onTrade} className="min-h-20 rounded-3xl border-2 border-transparent bg-card px-4 py-4 text-left">
+          <span className="block text-lg font-medium">Trading</span>
+          <span className="mt-1 block text-sm text-mute">A daily quote</span>
+        </button>
+        <button type="button" onClick={onSports} className="min-h-20 rounded-3xl border-2 border-transparent bg-card px-4 py-4 text-left">
+          <span className="block text-lg font-medium">Sports</span>
+          <span className="mt-1 block text-sm text-mute">Scores, not bets</span>
+        </button>
       </div>
       <div className="mt-10 flex items-center justify-between text-sm text-mute">
         <UserButton />

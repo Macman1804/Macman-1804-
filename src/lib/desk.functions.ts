@@ -21,6 +21,7 @@ import { voiceId } from "@/lib/voice/voices";
 import { calendarReply } from "@/lib/voice/calendar";
 import { DESK_MODEL, SEARCH_LIMIT, UNVERIFIED, needsLiveLookup, searchQuery } from "@/lib/search/live";
 import { liveSearch } from "@/lib/search/provider.server";
+import { researchReply } from "@/lib/research/provider.server";
 import { replySubject } from "@/lib/supabase/channels";
 import { CHANNELS, type Channel, type DeskHome, type Line, type SavedMemory } from "@/lib/desk-types";
 
@@ -144,6 +145,11 @@ async function answer(
   const direct = calendarReply(body, new Date(), timeZone);
   if (direct) {
     const reply = await insertLine(client, userId, channel, "macman", direct, replySubjectLine);
+    return { line, reply, memory: memories[0]?.content ?? null, memories };
+  }
+  const researched = await researchReply(body);
+  if (researched) {
+    const reply = await insertLine(client, userId, channel, "macman", researched, replySubjectLine);
     return { line, reply, memory: memories[0]?.content ?? null, memories };
   }
   if (needsLiveLookup(body)) {

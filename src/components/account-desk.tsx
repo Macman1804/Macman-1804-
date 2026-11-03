@@ -42,7 +42,7 @@ export function AccountDesk({ onBack }: { onBack: () => void }) {
             <p className="mt-1 text-mute">Gmail is not connected. Outlook is not connected.</p>
             <p className="text-mute">An outside letter can be drafted here. Sending it needs your confirmation, and that step is off.</p>
             <p className="text-mute">
-              Bitcoin and Ethereum prices come from CoinGecko. Stocks are not connected. Weather comes from Open-Meteo. News is shown only from a page that could be read.
+              Bitcoin, Ethereum, Solana, XRP, and Cardano come from CoinGecko. Daily stock quotes come from Yahoo Finance. Scores come from ESPN. Stocks are not a brokerage, and sports are not a wager.
             </p>
           </section>
           <section>

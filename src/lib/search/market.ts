@@ -1,8 +1,11 @@
-export type MarketCoin = "bitcoin" | "ethereum";
+export type MarketCoin = "bitcoin" | "ethereum" | "solana" | "ripple" | "cardano";
 
 const COINS: { id: MarketCoin; pattern: RegExp; name: string; page: string }[] = [
   { id: "bitcoin", pattern: /\b(bitcoin|btc)\b/i, name: "Bitcoin", page: "https://www.coingecko.com/en/coins/bitcoin" },
   { id: "ethereum", pattern: /\b(ethereum|ether)\b/i, name: "Ethereum", page: "https://www.coingecko.com/en/coins/ethereum" },
+  { id: "solana", pattern: /\bsolana\b/i, name: "Solana", page: "https://www.coingecko.com/en/coins/solana" },
+  { id: "ripple", pattern: /\b(xrp|ripple)\b/i, name: "XRP", page: "https://www.coingecko.com/en/coins/xrp" },
+  { id: "cardano", pattern: /\b(cardano|ada)\b/i, name: "Cardano", page: "https://www.coingecko.com/en/coins/cardano" },
 ];
 
 /** A known coin price can use a structured feed. Other markets stay on page checks. */
