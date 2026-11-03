@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { aliasFor } from "@/lib/alias";
 import type { Channel, Line, SavedMemory } from "@/lib/desk-types";
+import { spokenText } from "@/lib/search/live";
 import { appChannel, DB_CHANNEL, packBody, unpackBody } from "@/lib/supabase/channels";
 
 export { DB_CHANNEL, packBody, unpackBody };
@@ -231,5 +232,5 @@ export async function readVoiceReply(client: SupabaseClient, userId: string, lin
   if (conversation.error || !conversation.data) return null;
   const channel = appChannel(conversation.data.channel);
   if (!channel) return null;
-  return unpackBody(channel, row.data.content).body.slice(0, 600);
+  return spokenText(unpackBody(channel, row.data.content).body).slice(0, 600);
 }

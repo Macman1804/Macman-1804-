@@ -19,6 +19,8 @@ import {
 import { pickRelevant, type PastLine } from "@/lib/supabase/memory-context";
 import { voiceId } from "@/lib/voice/voices";
 import { calendarReply } from "@/lib/voice/calendar";
+import { DESK_MODEL, SEARCH_LIMIT, UNVERIFIED, needsLiveLookup, searchQuery } from "@/lib/search/live";
+import { liveSearch } from "@/lib/search/provider.server";
 import { replySubject } from "@/lib/supabase/channels";
 import { CHANNELS, type Channel, type DeskHome, type Line, type SavedMemory } from "@/lib/desk-types";
 
@@ -53,7 +55,7 @@ async function complete(system: string, user: string, maxTokens: number): Promis
       },
       signal: AbortSignal.timeout(25000),
       body: JSON.stringify({
-        model: "grok-4.5",
+        model: DESK_MODEL,
         max_tokens: maxTokens,
         temperature: 0.5,
         messages: [
@@ -109,11 +111,18 @@ async function earlierLines(client: SupabaseClient, userId: string, channel: Cha
 }
 
 const hits = new Map<string, number[]>();
+const searches = new Map<string, number[]>();
 
 function pace(userId: string) {
   const turn = admit(hits.get(userId) ?? [], Date.now(), 30, 10 * 60 * 1000);
   hits.set(userId, turn.next);
   if (!turn.ok) throw new Error("Wait a moment before the next line.");
+}
+
+function allowSearch(userId: string): boolean {
+  const turn = admit(searches.get(userId) ?? [], Date.now(), 8, 10 * 60 * 1000);
+  searches.set(userId, turn.next);
+  return turn.ok;
 }
 
 async function answer(
@@ -135,6 +144,22 @@ async function answer(
   const direct = calendarReply(body, new Date(), timeZone);
   if (direct) {
     const reply = await insertLine(client, userId, channel, "macman", direct, replySubjectLine);
+    return { line, reply, memory: memories[0]?.content ?? null, memories };
+  }
+  if (needsLiveLookup(body)) {
+    const query = searchQuery(body);
+    if (!query) {
+      const reply = await insertLine(client, userId, channel, "macman", UNVERIFIED, replySubjectLine);
+      return { line, reply, memory: memories[0]?.content ?? null, memories };
+    }
+    if (!allowSearch(userId)) {
+      const reply = await insertLine(client, userId, channel, "macman", SEARCH_LIMIT, replySubjectLine);
+      return { line, reply, memory: memories[0]?.content ?? null, memories };
+    }
+    await recordUsage(client, userId, channel);
+    const found = await liveSearch(query);
+    const text = found.ok ? found.body : UNVERIFIED;
+    const reply = await insertLine(client, userId, channel, "macman", text, replySubjectLine);
     return { line, reply, memory: memories[0]?.content ?? null, memories };
   }
   const transcript = await recentTranscript(client, userId, channel);

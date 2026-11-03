@@ -243,6 +243,30 @@ function Home({
   );
 }
 
+function MessageBody({ body }: { body: string }) {
+  const [prose, listed] = body.split("\n\nSources\n");
+  const sources = (listed ?? "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => /^https:\/\/\S+$/.test(line));
+  return (
+    <>
+      <p className="mt-1 text-base leading-relaxed whitespace-pre-wrap">{prose}</p>
+      {sources.length > 0 ? (
+        <ul className="mt-3 flex flex-col gap-2">
+          {sources.map((url) => (
+            <li key={url}>
+              <a href={url} target="_blank" rel="noreferrer" className="text-sm break-all text-copper underline">
+                {url}
+              </a>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </>
+  );
+}
+
 function ChannelView({
   channel,
   alias,
@@ -405,7 +429,7 @@ function ChannelView({
         <h2 className="font-serif text-3xl">{card.title}</h2>
       </div>
       <p className="px-5 pt-2 text-sm leading-relaxed text-mute">
-        {channel === "desk" && "Write it here. A reply takes a few seconds."}
+        {channel === "desk" && "Write it here. A current question is checked on the web. A private one stays on the desk."}
         {channel === "voice" && "A browser call listens, answers aloud, then listens again. A phone call is not connected."}
         {channel === "mail" &&
           `A letter on ${alias || "your alias"}. Answered here. An outside inbox is not connected, and nothing is sent without your confirmation.`}
@@ -424,7 +448,7 @@ function ChannelView({
                 {line.role === "person" ? "You" : "Macman"}
               </p>
               {line.subject ? <p className="mt-1 text-sm text-mute">{line.subject}</p> : null}
-              <p className="mt-1 text-base leading-relaxed whitespace-pre-wrap">{line.body}</p>
+              <MessageBody body={line.body} />
               {line.role === "macman" ? (
                 <button
                   type="button"
