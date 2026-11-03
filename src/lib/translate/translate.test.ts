@@ -3,7 +3,9 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import { requestTranslation } from "./engine.ts";
 import { sttCode, swapLanguages, ttsCode } from "./languages.ts";
-import { detectLanguage, historyStorageKey, packSavedTurns, parseTranslation, readSavedTurns, translationInstructions } from "./parse.ts";
+import { detectLanguage, formatShare, historyStorageKey, packSavedTurns, parseTranslation, readSavedTurns, translationInstructions } from "./parse.ts";
+import { synthesizeSpeech, transcribeAudio } from "./speech.ts";
+import { canSaveTranslation, directionFor, micBlocked } from "./talk.ts";
 
 const USER_A = "11111111-1111-4111-8111-111111111111";
 const USER_B = "22222222-2222-4222-8222-222222222222";
@@ -133,3 +135,58 @@ test("the translator route does not write desk memory", () => {
   assert.equal(source.includes("listMemories"), false);
   assert.equal(source.includes("insertLine"), false);
 });
+
+test("two people take turns and a second microphone stays closed", () => {
+  assert.deepEqual(directionFor("a", "en", "es", "en", "es"), { from: "en", to: "es", next: "b" });
+  assert.deepEqual(directionFor("b", "en", "es", "en", "es"), { from: "es", to: "en", next: "a" });
+  assert.deepEqual(directionFor("text", "en", "es", "fr", "de"), { from: "fr", to: "de", next: null });
+  assert.equal(micBlocked("a", "b"), true);
+  assert.equal(micBlocked("a", "a"), false);
+  assert.equal(micBlocked(null, "b"), false);
+  assert.equal(canSaveTranslation(false, 2), false);
+  assert.equal(canSaveTranslation(true, 0), false);
+  assert.equal(canSaveTranslation(true, 1), true);
+});
+
+test("copy text keeps both sides and does not add a link", () => {
+  const shared = formatShare(
+    { source: "en", target: "es", detected: null, original: "The train leaves at 7.", translation: "El tren sale a las 7." },
+    { original: "Original", translation: "Translation" },
+  );
+  assert.match(shared, /train leaves at 7/);
+  assert.match(shared, /El tren sale a las 7/);
+  assert.equal(shared.includes("http"), false);
+});
+
+test("a failed speech endpoint does not invent a line", async () => {
+  const fetchImpl: typeof fetch = async () => new Response("no", { status: 500 });
+  const spoken = await synthesizeSpeech({ text: "Hello", language: "en" }, { apiKey: "test", fetchImpl });
+  assert.equal(spoken.ok, false);
+  const heard = await transcribeAudio(
+    { audio: Uint8Array.from([1, 2, 3, 4]), mime: "audio/wav", speechLanguage: "es" },
+    { apiKey: "test", fetchImpl },
+  );
+  assert.equal(heard.ok, false);
+  const quiet = await transcribeAudio(
+    { audio: Uint8Array.from([1, 2, 3, 4]), mime: "audio/wav", speechLanguage: "nope" },
+    { apiKey: "test", fetchImpl },
+  );
+  assert.equal(quiet.ok, false);
+  if (!quiet.ok) assert.equal(quiet.error, "unsupported");
+});
+
+test("an API failure and an oversized line are refused", async () => {
+  const down: typeof fetch = async () => {
+    throw new Error("network");
+  };
+  const failed = await requestTranslation({ source: "en", target: "es", text: "Hello there" }, { apiKey: "test", fetchImpl: down });
+  assert.equal(failed.ok, false);
+  if (!failed.ok) assert.equal(failed.error, "failed");
+  const missing = await requestTranslation({ source: "en", target: "es", text: "Hello there" }, {});
+  assert.equal(missing.ok, false);
+  if (!missing.ok) assert.equal(missing.error, "unavailable");
+  const long = await requestTranslation({ source: "en", target: "es", text: "a".repeat(2001) }, { apiKey: "test" });
+  assert.equal(long.ok, false);
+  if (!long.ok) assert.equal(long.error, "short");
+});
+

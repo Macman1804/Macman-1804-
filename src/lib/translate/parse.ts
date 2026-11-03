@@ -3,7 +3,7 @@ import { languageByCode, languageName } from "./languages.ts";
 const WORDS: { code: string; weight: number; pattern: RegExp }[] = [
   { code: "en", weight: 2, pattern: /\b(hello|thanks|thank|please|where|what|when|the|is|are|was|you|good|morning|need|want|station|help|goodbye)\b/gi },
   { code: "es", weight: 2, pattern: /\b(hola|gracias|buenos|dias|días|donde|dónde|esta|está|favor|manana|mañana|quiero|necesito|adios|adiós|buenas|noches)\b/gi },
-  { code: "fr", weight: 2, pattern: /\b(bonjour|merci|gare|s'il|vous|suis|avez|oui|bonjour)\b/gi },
+  { code: "fr", weight: 2, pattern: /\b(bonjour|merci|gare|s'il|vous|suis|avez|oui)\b/gi },
   { code: "de", weight: 2, pattern: /\b(hallo|danke|bitte|bahnhof|guten|morgen|ich|nicht|wo)\b/gi },
   { code: "pt", weight: 2, pattern: /\b(olá|obrigado|obrigada|bom|dia|onde|estação|por|favor)\b/gi },
   { code: "it", weight: 2, pattern: /\b(ciao|grazie|buongiorno|dove|stazione|per|favore)\b/gi },
@@ -67,14 +67,21 @@ export function parseTranslation(raw: string): { text: string; confident: boolea
   if (!match) return null;
   const text = (match[2] ?? "").trim();
   if (/^```/.test(text)) return null;
-  const confident = match[1].toLowerCase() === "yes" && text.length > 0;
-  return { text, confident };
+  return { text, confident: match[1].toLowerCase() === "yes" && text.length > 0 };
 }
 
 export function sourceLabel(source: string, detected: { code: string | null; confident: boolean }): string {
   if (source !== "auto") return languageName(source);
   if (detected.confident && detected.code && languageByCode(detected.code)) return languageName(detected.code);
   return "an unknown language";
+}
+
+export function formatShare(
+  turn: { source: string; target: string; original: string; translation: string; detected: string | null },
+  labels: { original: string; translation: string },
+): string {
+  const from = turn.detected ? languageName(turn.detected) : languageName(turn.source);
+  return `${labels.original} (${from}):\n${turn.original}\n\n${labels.translation} (${languageName(turn.target)}):\n${turn.translation}`;
 }
 
 export type SavedTurn = {

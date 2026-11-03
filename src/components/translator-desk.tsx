@@ -14,11 +14,11 @@ import {
   ttsCode,
   type TranslateCode,
 } from "@/lib/translate/languages";
-import { historyStorageKey, packSavedTurns, readSavedTurns, type SavedTurn } from "@/lib/translate/parse";
+import { historyStorageKey, packSavedTurns, readSavedTurns, formatShare, type SavedTurn } from "@/lib/translate/parse";
+import { directionFor, micBlocked, canSaveTranslation, type Speaker } from "@/lib/translate/talk";
 import { MIN_BYTES } from "@/lib/voice/utterance";
 
 type Mode = "text" | "talk";
-type Speaker = "text" | "a" | "b";
 
 type Turn = SavedTurn & { detected: string | null; audio: string | null };
 
@@ -50,8 +50,7 @@ function blobToBase64(blob: Blob): Promise<string> {
 }
 
 function shareBody(turn: Turn, t: Copy): string {
-  const from = turn.detected ? languageName(turn.detected) : languageName(turn.source);
-  return `${t.originalLabel} (${from}):\n${turn.original}\n\n${t.translationLabel} (${languageName(turn.target)}):\n${turn.translation}`;
+  return formatShare(turn, { original: t.originalLabel, translation: t.translationLabel });
 }
 
 export function TranslatorDesk({ onBack }: { onBack: () => void }) {
@@ -208,11 +207,9 @@ export function TranslatorDesk({ onBack }: { onBack: () => void }) {
     setBusy(true);
     setNote(null);
     try {
-      const from = speaker === "b" ? personB : speaker === "a" ? personA : source;
-      const to = speaker === "b" ? personA : speaker === "a" ? personB : target;
       const audio = await blobToBase64(blob);
       const heard = await transcribeTranslation({
-        data: { audio, mime: blob.type || "audio/webm", speechLanguage: from },
+        data: { audio, mime: blob.type || "audio/webm", speechLanguage: directionFor(speaker, personA, personB, source, target).from },
       });
       if (!heard.ok) {
         setNote(failNote(heard.error, t));
@@ -222,7 +219,8 @@ export function TranslatorDesk({ onBack }: { onBack: () => void }) {
         setNote(t.notClear);
         return;
       }
-      await translate(heard.text, from, to, speaker === "a" ? "b" : speaker === "b" ? "a" : null);
+      const way = directionFor(speaker, personA, personB, source, target);
+      await translate(heard.text, way.from, way.to, way.next);
     } catch (error) {
       setNote(publicError(error instanceof Error ? error.message : "", t.translateFailed, lang));
     } finally {
@@ -413,7 +411,7 @@ export function TranslatorDesk({ onBack }: { onBack: () => void }) {
             </button>
             <button
               type="button"
-              disabled={(busy && recording !== "text") || (recording !== null && recording !== "text")}
+              disabled={(busy && recording !== "text") || micBlocked(recording, "text")}
               onClick={() => void toggleMic("text")}
               className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-copper text-base text-copper disabled:opacity-50"
             >
@@ -438,7 +436,7 @@ export function TranslatorDesk({ onBack }: { onBack: () => void }) {
               setPersonA(value);
             }}
             onMic={() => void toggleMic("a")}
-            blocked={recording !== null && recording !== "a"}
+            blocked={micBlocked(recording, "a")}
             tapLabel={t.tapToSpeak}
             stopLabel={t.stopAndTranslate}
           />
@@ -468,7 +466,7 @@ export function TranslatorDesk({ onBack }: { onBack: () => void }) {
               setPersonB(value);
             }}
             onMic={() => void toggleMic("b")}
-            blocked={recording !== null && recording !== "b"}
+            blocked={micBlocked(recording, "b")}
             tapLabel={t.tapToSpeak}
             stopLabel={t.stopAndTranslate}
           />
@@ -490,9 +488,8 @@ export function TranslatorDesk({ onBack }: { onBack: () => void }) {
               const text = draft.trim();
               if (!text) return;
               setDraft("");
-              const from = turn === "a" ? personA : personB;
-              const to = turn === "a" ? personB : personA;
-              void translate(text, from, to, turn === "a" ? "b" : "a");
+              const way = directionFor(turn, personA, personB, personA, personB);
+              void translate(text, way.from, way.to, way.next);
             }}
             className="min-h-12 rounded-full border border-copper text-base text-copper disabled:opacity-50"
           >
@@ -507,7 +504,7 @@ export function TranslatorDesk({ onBack }: { onBack: () => void }) {
         {[...turns].reverse().map((item) => (
           <article key={item.id} className="rounded-3xl border border-edge bg-card px-4 py-4">
             <p className="text-xs tracking-widest text-copper uppercase">{t.originalLabel}</p>
-            {item.detected ? (
+            {item.source === "auto" && item.detected ? (
               <p className="mt-1 text-xs text-mute">
                 {t.detectedAs}: {languageName(item.detected)}
               </p>
@@ -550,7 +547,7 @@ export function TranslatorDesk({ onBack }: { onBack: () => void }) {
         <p className="text-sm leading-relaxed text-mute">{t.saveHelp}</p>
         <button
           type="button"
-          disabled={!consent || turns.length === 0}
+          disabled={!canSaveTranslation(consent, turns.length)}
           onClick={saveConversation}
           className="min-h-12 rounded-full border border-copper text-base text-copper disabled:opacity-50"
         >
