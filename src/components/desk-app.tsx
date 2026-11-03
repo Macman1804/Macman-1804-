@@ -243,12 +243,22 @@ function Home({
   );
 }
 
+function sourceLabel(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.replace(/^www\./, "");
+    const path = parsed.pathname === "/" ? "" : parsed.pathname;
+    return path && path.length < 32 ? `${host}${path}` : host;
+  } catch {
+    return "Source";
+  }
+}
+
 function MessageBody({ body }: { body: string }) {
   const [prose, listed] = body.split("\n\nSources\n");
-  const sources = (listed ?? "")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => /^https:\/\/\S+$/.test(line));
+  const sources = [...new Set((listed ?? "").split("\n").map((line) => line.trim()))].filter((line) =>
+    /^https:\/\/\S+$/.test(line),
+  );
   return (
     <>
       <p className="mt-1 text-base leading-relaxed whitespace-pre-wrap">{prose}</p>
@@ -256,8 +266,8 @@ function MessageBody({ body }: { body: string }) {
         <ul className="mt-3 flex flex-col gap-2">
           {sources.map((url) => (
             <li key={url}>
-              <a href={url} target="_blank" rel="noreferrer" className="text-sm break-all text-copper underline">
-                {url}
+              <a href={url} target="_blank" rel="noreferrer" className="text-sm text-copper underline">
+                {sourceLabel(url)}
               </a>
             </li>
           ))}
