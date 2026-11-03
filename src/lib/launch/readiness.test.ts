@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { PLACEHOLDER_PLAN, entitlement } from "../billing/plans.ts";
+import { TELEPHONE_PLAN, entitlement } from "../billing/plans.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 
@@ -28,10 +28,10 @@ test("pending migrations stay owner-scoped and do not drop data", () => {
   assert.equal(mailbox.includes("grant select, insert, update on table public.mailbox_links"), false);
 });
 
-test("launch billing is still a placeholder", () => {
-  assert.equal(PLACEHOLDER_PLAN.price, null);
-  assert.equal(PLACEHOLDER_PLAN.billing, false);
-  assert.equal(PLACEHOLDER_PLAN.cardStored, false);
+test("the telephone plan is $20 a month and nothing is charged", () => {
+  assert.equal(TELEPHONE_PLAN.priceUsd, 20);
+  assert.equal(TELEPHONE_PLAN.billing, false);
+  assert.equal(TELEPHONE_PLAN.cardStored, false);
   assert.equal(entitlement("desk").allowed, true);
   assert.equal(entitlement("phone").allowed, false);
   assert.equal(entitlement("outside_send").allowed, false);

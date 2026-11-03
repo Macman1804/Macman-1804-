@@ -1,14 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { PLACEHOLDER_PLAN, billingWebhook, changeSubscription, entitlement, meterUsage } from "./plans.ts";
+import { TELEPHONE_PLAN, billingWebhook, changeSubscription, entitlement, meterUsage } from "./plans.ts";
 
-test("the desk stays free and paid features stay off", () => {
-  assert.equal(PLACEHOLDER_PLAN.price, null);
-  assert.equal(PLACEHOLDER_PLAN.billing, false);
-  assert.equal(PLACEHOLDER_PLAN.cardStored, false);
+test("the desk stays free and the telephone price does not charge anyone", () => {
+  assert.equal(TELEPHONE_PLAN.priceUsd, 20);
+  assert.equal(TELEPHONE_PLAN.currency, "USD");
+  assert.equal(TELEPHONE_PLAN.interval, "month");
+  assert.equal(TELEPHONE_PLAN.billing, false);
+  assert.equal(TELEPHONE_PLAN.cardStored, false);
   assert.equal(entitlement("desk").allowed, true);
   assert.equal(entitlement("voice").billing, false);
   assert.equal(entitlement("phone").allowed, false);
+  assert.match(entitlement("phone").reason, /\$20/);
   assert.equal(entitlement("live_sms").allowed, false);
   assert.equal(entitlement("outside_send").allowed, false);
 });

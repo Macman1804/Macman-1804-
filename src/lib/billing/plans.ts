@@ -1,7 +1,10 @@
-export const PLACEHOLDER_PLAN = {
-  id: "not_chosen",
-  name: "Not chosen",
-  price: null,
+/** Price chosen by the account owner. Nothing is charged and no card is stored. */
+export const TELEPHONE_PLAN = {
+  id: "telephone_month",
+  name: "Telephone",
+  priceUsd: 20,
+  currency: "USD",
+  interval: "month",
   billing: false,
   cardStored: false,
 } as const;
@@ -11,10 +14,14 @@ const LOCKED_FEATURES = new Set(["phone", "live_sms", "outside_send"]);
 
 export type Feature = "desk" | "voice" | "mail" | "text" | "phone" | "live_sms" | "outside_send";
 
-/** The desk keeps working. Paid features stay locked, and no price is chosen. */
+/** The desk keeps working. The telephone price is set, and no one is charged. */
 export function entitlement(feature: Feature): { allowed: boolean; billing: false; reason: string } {
   if (LOCKED_FEATURES.has(feature)) {
-    return { allowed: false, billing: false, reason: "That stays off until you approve a plan and billing." };
+    return {
+      allowed: false,
+      billing: false,
+      reason: `The telephone plan is $${TELEPHONE_PLAN.priceUsd} a month. Nothing has been charged.`,
+    };
   }
   if (DESK_FEATURES.has(feature)) {
     return { allowed: true, billing: false, reason: "Included on the desk. No charge." };
@@ -31,10 +38,11 @@ export function changeSubscription(input: {
   if (!input.actorId || input.actorId !== input.ownerId) {
     return { ok: false, billing: false, reason: "That subscription is not on this account." };
   }
-  if (input.billing || input.planId !== PLACEHOLDER_PLAN.id) {
-    return { ok: false, billing: false, reason: "Billing is not on. No plan can be purchased." };
-  }
-  return { ok: false, billing: false, reason: "The plan stays unchosen. Nothing was charged." };
+  return {
+    ok: false,
+    billing: false,
+    reason: `The telephone plan is $${TELEPHONE_PLAN.priceUsd} a month. Nothing was charged. No card was taken.`,
+  };
 }
 
 /** A billing cap is not set. A caller may pass a test cap. Crossing it does not charge anyone. */

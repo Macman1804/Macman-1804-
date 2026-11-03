@@ -76,7 +76,7 @@ export function AccountDesk({ onBack }: { onBack: () => void }) {
           </section>
           <section>
             <p className="text-xs tracking-widest text-copper uppercase">{t.subscription}</p>
-            <p className="mt-1 text-mute">{t.planOff}</p>
+            <p className="mt-1 text-mute">{t.planOff.replace("{price}", String(account.subscription.price))}</p>
           </section>
         </div>
       ) : null}
