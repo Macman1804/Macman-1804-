@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabaseMiddleware } from "@/lib/supabase/middleware";
+import { PLACEHOLDER_PLAN } from "@/lib/billing/plans";
 import { admit } from "@/lib/security/pace";
 import { twilioReadiness } from "@/lib/telephony/readiness";
 import {
@@ -239,7 +240,13 @@ export const getAccountDesk = createServerFn({ method: "GET" })
       phone: { configured: phone.configured, missing: phone.missing, callsEnabled: phone.callsEnabled, smsEnabled: phone.smsEnabled },
       sms: { mode: "simulated" as const, carrierDelivery: false as const, consentStored: false as const },
       usage: { available: count !== null, count },
-      subscription: { status: "not_chosen" as const, billing: false as const },
+      subscription: {
+        status: PLACEHOLDER_PLAN.id,
+        plan: PLACEHOLDER_PLAN.name,
+        price: PLACEHOLDER_PLAN.price,
+        billing: PLACEHOLDER_PLAN.billing,
+        cardStored: PLACEHOLDER_PLAN.cardStored,
+      },
       memories,
     };
   });

@@ -69,7 +69,7 @@ export function AccountDesk({ onBack }: { onBack: () => void }) {
           </section>
           <section>
             <p className="text-xs tracking-widest text-copper uppercase">Subscription</p>
-            <p className="mt-1 text-mute">Not chosen. Billing is not turned on.</p>
+            <p className="mt-1 text-mute">Plan not chosen. Price not set. No card is stored. Billing is off.</p>
           </section>
         </div>
       ) : null}

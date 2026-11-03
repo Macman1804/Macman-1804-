@@ -20,9 +20,9 @@ create table if not exists public.sms_consent (
 create table if not exists public.audit_events (
   id uuid primary key default gen_random_uuid(),
   subscriber_id uuid not null references public.profiles (id) on delete cascade,
-  action text not null,
+  action text not null check (char_length(action) between 1 and 80),
   outcome text not null check (outcome in ('allowed', 'refused')),
-  detail text not null default '',
+  detail text not null default '' check (char_length(detail) <= 180),
   created_at timestamptz not null default now()
 );
 
@@ -33,8 +33,12 @@ alter table public.mailbox_links enable row level security;
 alter table public.sms_consent enable row level security;
 alter table public.audit_events enable row level security;
 
+revoke all on table public.mailbox_links from public, anon, authenticated;
+revoke all on table public.sms_consent from public, anon;
+revoke all on table public.audit_events from public, anon, authenticated;
+
 grant select, insert, update on table public.sms_consent to authenticated;
-grant select, insert on table public.audit_events to authenticated;
+grant select on table public.audit_events to authenticated;
 
 do $$
 begin
@@ -81,17 +85,6 @@ begin
       for select
       to authenticated
       using (subscriber_id = (select auth.uid()));
-  end if;
-
-  if not exists (
-    select 1 from pg_policies
-    where schemaname = 'public' and tablename = 'audit_events' and policyname = 'audit_events_insert_own'
-  ) then
-    create policy audit_events_insert_own
-      on public.audit_events
-      for insert
-      to authenticated
-      with check (subscriber_id = (select auth.uid()));
   end if;
 end
 $$;

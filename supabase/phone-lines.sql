@@ -12,6 +12,8 @@ create table if not exists public.phone_lines (
 
 alter table public.phone_lines enable row level security;
 
+revoke all on table public.phone_lines from public, anon;
+revoke insert, update, delete, truncate on table public.phone_lines from authenticated;
 grant select on table public.phone_lines to authenticated;
 
 do $$

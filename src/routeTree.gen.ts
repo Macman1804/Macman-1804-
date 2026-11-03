@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as ApiBillingWebhookRouteImport } from './routes/api/billing/webhook'
 import { Route as ApiTwilioSmsRouteImport } from './routes/api/twilio/sms'
 import { Route as ApiTwilioVoiceRouteImport } from './routes/api/twilio/voice'
 
@@ -30,6 +31,11 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiBillingWebhookRoute = ApiBillingWebhookRouteImport.update({
+  id: '/api/billing/webhook',
+  path: '/api/billing/webhook',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiTwilioSmsRoute = ApiTwilioSmsRouteImport.update({
   id: '/api/twilio/sms',
   path: '/api/twilio/sms',
@@ -45,6 +51,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/billing/webhook': typeof ApiBillingWebhookRoute
   '/api/twilio/sms': typeof ApiTwilioSmsRoute
   '/api/twilio/voice': typeof ApiTwilioVoiceRoute
 }
@@ -52,6 +59,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/billing/webhook': typeof ApiBillingWebhookRoute
   '/api/twilio/sms': typeof ApiTwilioSmsRoute
   '/api/twilio/voice': typeof ApiTwilioVoiceRoute
 }
@@ -60,20 +68,33 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/billing/webhook': typeof ApiBillingWebhookRoute
   '/api/twilio/sms': typeof ApiTwilioSmsRoute
   '/api/twilio/voice': typeof ApiTwilioVoiceRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/login' | '/api/auth/$' | '/api/twilio/sms' | '/api/twilio/voice'
+    | '/'
+    | '/login'
+    | '/api/auth/$'
+    | '/api/billing/webhook'
+    | '/api/twilio/sms'
+    | '/api/twilio/voice'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/login' | '/api/auth/$' | '/api/twilio/sms' | '/api/twilio/voice'
+  to:
+    | '/'
+    | '/login'
+    | '/api/auth/$'
+    | '/api/billing/webhook'
+    | '/api/twilio/sms'
+    | '/api/twilio/voice'
   id:
     | '__root__'
     | '/'
     | '/login'
     | '/api/auth/$'
+    | '/api/billing/webhook'
     | '/api/twilio/sms'
     | '/api/twilio/voice'
   fileRoutesById: FileRoutesById
@@ -82,6 +103,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   LoginRoute: typeof LoginRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  ApiBillingWebhookRoute: typeof ApiBillingWebhookRoute
   ApiTwilioSmsRoute: typeof ApiTwilioSmsRoute
   ApiTwilioVoiceRoute: typeof ApiTwilioVoiceRoute
 }
@@ -109,6 +131,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/billing/webhook': {
+      id: '/api/billing/webhook'
+      path: '/api/billing/webhook'
+      fullPath: '/api/billing/webhook'
+      preLoaderRoute: typeof ApiBillingWebhookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/twilio/sms': {
       id: '/api/twilio/sms'
       path: '/api/twilio/sms'
@@ -130,6 +159,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LoginRoute: LoginRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
+  ApiBillingWebhookRoute: ApiBillingWebhookRoute,
   ApiTwilioSmsRoute: ApiTwilioSmsRoute,
   ApiTwilioVoiceRoute: ApiTwilioVoiceRoute,
 }
