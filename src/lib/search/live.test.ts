@@ -50,33 +50,50 @@ test("disagreeing sources are both kept and a date is not added", () => {
   assert.equal(spokenText(parsed.body).includes("https://"), false);
 });
 
-test("a market quote keeps only a figure that is on the page, once", () => {
-  const drafted = verifiedReply("Bitcoin is $67,234.50 at 3:15 p.m. See https://news.example/btc", [
-    "https://blog.example/story",
-    "https://finance.yahoo.com/quote/BTC-USD/",
+test("a market quote keeps a real source and drops a proxy, a marker, and a pageless price", () => {
+  const drafted = verifiedReply("Bitcoin is $67,234.50 at 3:15 p.m. [1] [[2]]", [
+    "https://r.jina.ai/https://finance.yahoo.com/quote/BTC-USD",
+    "https://r.jina.ai/https://blog.example/no-price",
     "https://finance.yahoo.com/quote/BTC-USD/?utm_source=macman",
   ]);
   assert.equal(drafted.ok, true);
   if (!drafted.ok) return;
-  assert.equal(drafted.sources.length, 2);
-  assert.equal(drafted.sources[0]?.url, "https://finance.yahoo.com/quote/BTC-USD");
-  assert.equal(drafted.body.split("https://finance.yahoo.com/quote/BTC-USD").length, 2);
+  assert.equal(drafted.body.includes("r.jina.ai"), false);
+  assert.equal(drafted.body.includes("[1]"), false);
+  assert.equal(drafted.body.includes("[[2]]"), false);
+  assert.match(drafted.body, /https:\/\/finance\.yahoo\.com\/quote\/BTC-USD/);
+  assert.equal(drafted.sources.filter((source) => source.url.includes("finance.yahoo.com")).length, 1);
 
   const checked = checkAgainstSources(drafted.body, [
-    "Bitcoin 67234.50 as of 3:15 p.m. ET. Quotes are delayed 15 minutes.",
+    {
+      url: "https://finance.yahoo.com/quote/BTC-USD",
+      text: "Bitcoin 67234.50 as of 3:15 p.m. ET. Quotes are delayed 15 minutes.",
+    },
+    { url: "https://blog.example/no-price", text: "No figure on this page." },
   ]);
   assert.equal(checked.ok, true);
   if (!checked.ok) return;
-  assert.match(checked.body, /\$67,234\.50/);
-  assert.match(checked.body, /3:15 p\.m\./);
-  assert.match(checked.body, /time zone as ET/);
-  assert.match(checked.body, /quote delayed/);
+  assert.match(checked.body, /The quoted price is \$67,234\.50 as of 3:15 p\.m\./);
+  assert.match(checked.body, /The time zone is ET/);
+  assert.match(checked.body, /That quote is delayed/);
+  assert.equal(checked.body.includes("blog.example"), false);
+  assert.equal(checked.body.includes("left out"), false);
+  assert.equal(checked.body.includes("r.jina.ai"), false);
   assert.equal(spokenText(checked.body).includes("https://"), false);
+  assert.equal(spokenText(checked.body).includes("[1]"), false);
 
-  const missing = checkAgainstSources(drafted.body, ["Bitcoin was discussed. No quote on this page. Eastern Time."]);
-  assert.equal(missing.ok, true);
-  if (!missing.ok) return;
-  assert.equal(missing.body.includes("67,234"), false);
-  assert.match(missing.body, /not on the source page/);
+  const missing = checkAgainstSources(drafted.body, [
+    { url: "https://finance.yahoo.com/quote/BTC-USD", text: "Bitcoin was discussed. Eastern Time." },
+  ]);
+  assert.equal(missing.ok, false);
+
+  const broken = verifiedReply("Bitcoin is $ . [1]", ["https://finance.yahoo.com/quote/BTC-USD"]);
+  assert.equal(broken.ok, true);
+  if (!broken.ok) return;
+  const unread = checkAgainstSources(broken.body, [
+    { url: "https://finance.yahoo.com/quote/BTC-USD", text: "67234.50" },
+  ]);
+  assert.equal(unread.ok, false);
 });
+
 

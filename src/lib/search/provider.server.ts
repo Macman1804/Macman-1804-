@@ -86,9 +86,12 @@ export async function liveSearch(
     if (!res.ok) return { ok: false };
     const parsed = parseSearchPayload(await res.json());
     if (!parsed.ok) return parsed;
-    const pages = (
-      await Promise.all(parsed.sources.slice(0, 3).map((source) => readPublicPage(source.url)))
-    ).filter((page): page is string => Boolean(page));
+    const pages = await Promise.all(
+      parsed.sources.slice(0, 3).map(async (source) => ({
+        url: source.url,
+        text: (await readPublicPage(source.url)) ?? "",
+      })),
+    );
     return checkAgainstSources(parsed.body, pages);
   } catch {
     return { ok: false };

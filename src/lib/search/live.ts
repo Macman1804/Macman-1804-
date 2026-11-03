@@ -75,11 +75,29 @@ function authorityRank(url: string): number {
   }
 }
 
+function originalSource(raw: string): string | null {
+  const trimmed = raw.trim().replace(/[),.\]]+$/, "");
+  const direct = canonical(trimmed);
+  if (!direct) return null;
+  const parsed = new URL(direct);
+  if (parsed.hostname.replace(/^www\./, "") !== "r.jina.ai") return direct;
+  const embedded = decodeURIComponent(parsed.pathname.replace(/^\//, ""));
+  const target = /^https?:\/\//i.test(embedded)
+    ? embedded.replace(/^http:\/\//i, "https://")
+    : /^https?:\//i.test(embedded)
+      ? embedded.replace(/^https?:\//i, "https://")
+      : "";
+  if (!target) return null;
+  const inner = canonical(target);
+  if (!inner || new URL(inner).hostname.replace(/^www\./, "") === "r.jina.ai") return null;
+  return inner;
+}
+
 function httpsOnly(values: string[]): string[] {
   const seen = new Set<string>();
   const kept: string[] = [];
   for (const value of values) {
-    const url = canonical(value.trim().replace(/[),.\]]+$/, ""));
+    const url = originalSource(value);
     if (!url || seen.has(url)) continue;
     seen.add(url);
     kept.push(url);
@@ -88,38 +106,52 @@ function httpsOnly(values: string[]): string[] {
   return kept.slice(0, 5);
 }
 
-function stripLinks(prose: string, allowed: ReadonlySet<string>): string {
-  return prose
-    .replace(/\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, (_all, label: string, url: string) =>
-      allowed.has(canonical(url) ?? "") ? label : "",
-    )
+function stripMarkers(text: string): string {
+  return text
+    .replace(/\[\[?\d+\]?\]/g, "")
+    .replace(/【\d+】/g, "")
+    .replace(/\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, "$1")
     .replace(/https?:\/\/\S+/g, "")
     .replace(/[ \t]{2,}/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
-/** Drops any link the provider did not return. Each URL is listed once, not inside the sentence. */
+function sentenceOk(sentence: string): boolean {
+  const words = sentence.split(/\s+/).filter(Boolean);
+  if (words.length < 4) return false;
+  if (/\b(is|are|at|of|for|see|was|were|a|the)\s*[.!?]?$/i.test(sentence)) return false;
+  if (/\$\s*[.!?]?$/.test(sentence)) return false;
+  if (/\b(left out|could not be read|not on the source|source page)\b/i.test(sentence)) return false;
+  return true;
+}
+
+function cleanProse(text: string): string {
+  const plain = stripMarkers(text).replace(/\s+/g, " ").trim();
+  return plain
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => sentence.trim())
+    .filter(sentenceOk)
+    .join(" ");
+}
+
+/** Drops any link the provider did not return. Proxy links are unwrapped. Markers stay out of the sentence. */
 export function verifiedReply(
   text: string,
   citations: readonly string[],
 ): { ok: true; body: string; sources: LiveSource[] } | { ok: false } {
   const sources = httpsOnly([...citations]);
-  const prose = text.trim();
+  const prose = stripMarkers(text);
   if (!prose || sources.length === 0) return { ok: false };
-  const clean = stripLinks(prose, new Set(sources));
-  if (!clean) return { ok: false };
   return {
     ok: true,
     sources: sources.map((url) => ({ url })),
-    body: `${clean}\n\nSources\n${sources.join("\n")}`,
+    body: `${prose}\n\nSources\n${sources.join("\n")}`,
   };
 }
 
 const PRICE = /\$\s?\d{1,3}(?:,\d{3})+(?:\.\d+)?|\$\s?\d+(?:\.\d+)?/g;
 const CLOCK = /\b\d{1,2}:\d{2}(?:\s?[ap]\.?m\.?)?\b/gi;
-const DAY =
-  /\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+\d{1,2},?\s+\d{4}\b/gi;
 
 function pageHas(pages: string, token: string): boolean {
   const compact = pages.toLowerCase().replace(/,/g, "").replace(/\s+/g, "");
@@ -132,96 +164,103 @@ function pageHas(pages: string, token: string): boolean {
   return forms.length > 0 && compact.includes(forms);
 }
 
-function dropUnsupported(prose: string, pages: string): { text: string; droppedPrice: boolean; droppedTime: boolean } {
-  let droppedPrice = false;
-  let droppedTime = false;
-  const next = prose
-    .replace(PRICE, (token) => {
-      if (pageHas(pages, token)) return token;
-      droppedPrice = true;
-      return "";
-    })
-    .replace(CLOCK, (token) => {
-      if (pageHas(pages, token)) return token;
-      droppedTime = true;
-      return "";
-    })
-    .replace(DAY, (token) => {
-      if (pageHas(pages, token)) return token;
-      droppedTime = true;
-      return "";
-    })
-    .replace(/\bat\s*\./gi, ".")
-    .replace(/\s+See\s*$/i, "")
-    .replace(/[ \t]{2,}/g, " ")
-    .replace(/\s+([.,])/g, "$1")
-    .trim();
-  return { text: next, droppedPrice, droppedTime };
+function sourceName(url: string): string {
+  const host = new URL(url).hostname.replace(/^www\./, "");
+  const names: Record<string, string> = {
+    "finance.yahoo.com": "Yahoo Finance",
+    "coingecko.com": "CoinGecko",
+    "coinbase.com": "Coinbase",
+    "coinmarketcap.com": "CoinMarketCap",
+    "reuters.com": "Reuters",
+    "nasdaq.com": "Nasdaq",
+  };
+  return names[host] ?? host;
 }
 
-function quoteNotes(pages: string): string {
-  const found = new Set<string>();
-  for (const match of pages.matchAll(
-    /\b(Eastern Time|Pacific Time|Central Time|Mountain Time|ET|EST|EDT|CT|CST|CDT|MT|MST|MDT|PT|PST|PDT|UTC|GMT)\b/g,
-  )) {
-    found.add(match[1] ?? "");
+function zoneOn(page: string): string | null {
+  const match = page.match(
+    /\b(Eastern Time|Pacific Time|Central Time|Mountain Time|ET|EST|EDT|CT|CST|CDT|MT|MST|MDT|PT|PST|PDT|UTC|GMT)\b/,
+  );
+  return match?.[1] ?? null;
+}
+
+type PricedPage = { url: string; text: string };
+
+function presentMarket(
+  claimed: string,
+  pages: readonly PricedPage[],
+): { ok: true; body: string; sources: LiveSource[] } | { ok: false } {
+  const claimedPrices = [...claimed.matchAll(PRICE)].map((match) => match[0].replace(/\s/g, ""));
+  const claimedTimes = [...claimed.matchAll(CLOCK)].map((match) => match[0]);
+  const kept: { url: string; price: string; time?: string; zone: string | null; delayed: boolean; live: boolean }[] = [];
+  for (const page of pages) {
+    const url = originalSource(page.url);
+    if (!url || !page.text.trim()) continue;
+    const price = claimedPrices.find((item) => pageHas(page.text, item));
+    if (!price) continue;
+    const lower = page.text.toLowerCase();
+    kept.push({
+      url,
+      price,
+      time: claimedTimes.find((item) => pageHas(page.text, item)),
+      zone: zoneOn(page.text),
+      delayed: /delayed|15-minute|15 minute|not real-time|not realtime/.test(lower),
+      live: /real-time|realtime|live price|live quote/.test(lower),
+    });
   }
-  const zone =
-    found.size === 1
-      ? `The source states the time zone as ${[...found][0]}.`
-      : found.size > 1
-        ? "The sources name more than one time zone."
-        : "The source did not state a time zone.";
-  const lower = pages.toLowerCase();
-  const delayed = /delayed|15-minute|15 minute|not real-time|not realtime/.test(lower);
-  const live = /real-time|realtime|live price|live quote/.test(lower);
-  const pace = delayed
-    ? "The source calls this quote delayed."
-    : live
-      ? "The source calls this quote live."
-      : "The source did not say whether this quote is live or delayed.";
-  return `${zone}\n${pace}`;
+  if (kept.length === 0) return { ok: false };
+  const prices = [...new Set(kept.map((item) => item.price))];
+  const sentence =
+    prices.length === 1
+      ? `The quoted price is ${prices[0]}${kept.find((item) => item.time)?.time ? ` as of ${kept.find((item) => item.time)?.time}` : ""}.`
+      : kept
+          .filter((item, index) => kept.findIndex((other) => other.price === item.price) === index)
+          .slice(0, 2)
+          .map((item) => `${sourceName(item.url)} lists ${item.price}.`)
+          .join(" ");
+  const notes: string[] = [];
+  const zones = [...new Set(kept.map((item) => item.zone).filter((item): item is string => Boolean(item)))];
+  if (zones.length === 1) notes.push(`The time zone is ${zones[0]}.`);
+  if (kept.every((item) => item.delayed)) notes.push("That quote is delayed.");
+  else if (kept.every((item) => item.live && !item.delayed)) notes.push("That quote is live.");
+  const urls = httpsOnly(kept.map((item) => item.url));
+  return {
+    ok: true,
+    sources: urls.map((url) => ({ url })),
+    body: `${[sentence, ...notes].join(" ")}\n\nSources\n${urls.join("\n")}`,
+  };
 }
 
 export function isMarketQuote(text: string): boolean {
   return /\b(bitcoin|btc|ethereum|crypto|stock|nasdaq|share|market|price)\b|\$\s?\d/i.test(text);
 }
 
-/** Keeps a price or a time only when that exact figure is on a retrieved page. */
+/** A market source is shown only when its page contains the quoted price. */
 export function checkAgainstSources(
   body: string,
-  pages: readonly string[],
+  pages: readonly { url: string; text: string }[],
 ): { ok: true; body: string; sources: LiveSource[] } | { ok: false } {
   const [prose, listed = ""] = body.split("\n\nSources\n");
   const sources = httpsOnly(listed.split("\n"));
   if (!prose?.trim() || sources.length === 0) return { ok: false };
-  const pageText = pages.join("\n");
-  const market = isMarketQuote(prose);
-  if (!pageText.trim()) {
-    if (!market) return { ok: true, sources: sources.map((url) => ({ url })), body: `${prose.trim()}\n\nSources\n${sources.join("\n")}` };
-    const stripped = dropUnsupported(prose, "");
-    return {
-      ok: true,
-      sources: sources.map((url) => ({ url })),
-      body: `${stripped.text}\n\nThe source page could not be read, so the price and time were left out.\n\nSources\n${sources.join("\n")}`.replace(/\n{3,}/g, "\n\n"),
-    };
+  if (isMarketQuote(prose)) {
+    const paired = sources.map((url) => ({
+      url,
+      text: pages.find((page) => originalSource(page.url) === url)?.text ?? "",
+    }));
+    return presentMarket(prose, paired);
   }
-  const checked = dropUnsupported(prose, pageText);
-  const notes: string[] = [];
-  if (checked.droppedPrice) notes.push("A quoted price was not on the source page, so it was left out.");
-  if (checked.droppedTime) notes.push("A quoted time was not on the source page, so it was left out.");
-  if (market) notes.push(quoteNotes(pageText));
-  const text = [checked.text, ...notes].filter(Boolean).join("\n");
-  if (!text.trim()) return { ok: false };
+  const clean = cleanProse(prose);
+  if (!clean) return { ok: false };
   return {
     ok: true,
     sources: sources.map((url) => ({ url })),
-    body: `${text.trim()}\n\nSources\n${sources.join("\n")}`,
+    body: `${clean}\n\nSources\n${sources.join("\n")}`,
   };
 }
 
 export function spokenText(body: string): string {
-  return (body.split(/\n\nSources\n/)[0] ?? "").replace(/https?:\/\/\S+/g, "").trim();
+  return stripMarkers(body.split(/\n\nSources\n/)[0] ?? "").replace(/\s+/g, " ").trim();
 }
 
 type OutputText = { type?: string; text?: string; annotations?: { url?: string }[] };
