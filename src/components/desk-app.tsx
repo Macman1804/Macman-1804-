@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { Mail, MessageSquare, Mic, Pencil, Volume2 } from "lucide-react";
 import { AccountGate, signOutMacman, useMacmanSession } from "@/components/account-gate";
 import { AccountDesk } from "@/components/account-desk";
+import { LanguageSwitch, useI18n } from "@/lib/i18n/provider";
+import type { Copy } from "@/lib/i18n/catalog";
+import type { Lang } from "@/lib/i18n/language";
 import { SportsDesk } from "@/components/sports-desk";
 import { TradingDesk } from "@/components/trading-desk";
 import { VoiceCall } from "@/components/voice-call";
@@ -31,15 +34,15 @@ const CARDS: { id: Channel; title: string; hint: string; icon: typeof Pencil }[]
   { id: "text", title: "Text", hint: "A short line, answered here", icon: MessageSquare },
 ];
 
-function errorText(error: unknown): string {
+function errorText(error: unknown, t: Copy, lang: Lang): string {
   if (typeof navigator !== "undefined" && navigator.onLine === false) {
-    return "The connection dropped. Try that line again.";
+    return t.connectionDropped;
   }
   const message = error instanceof Error ? error.message : "";
   if (/failed to fetch|network|load failed/i.test(message)) {
-    return "The connection dropped. Try that line again.";
+    return t.connectionDropped;
   }
-  return publicError(message, "The desk could not keep that.");
+  return publicError(message, t.deskCouldNot, lang);
 }
 
 function localZone(): string {
@@ -51,6 +54,7 @@ function localZone(): string {
 }
 
 export function DeskApp() {
+  const { t, lang } = useI18n();
   const account = useMacmanSession();
   const user = useCurrentUser();
   const [home, setHome] = useState<DeskHome | null>(null);
@@ -65,7 +69,7 @@ export function DeskApp() {
         if (!cancel) setHome(next);
       })
       .catch((error: unknown) => {
-        if (!cancel) setHomeError(errorText(error));
+        if (!cancel) setHomeError(errorText(error, t, lang));
       });
     return () => {
       cancel = true;
@@ -82,7 +86,8 @@ export function DeskApp() {
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-lg flex-col bg-ink">
-      <header className="flex items-center justify-between gap-3 border-b border-line px-5 py-4">
+      <header className="border-b border-line px-5 py-4">
+        <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <span className="grid size-11 shrink-0 place-items-center rounded-full bg-mark font-serif text-lg text-cream">
             M
@@ -90,7 +95,7 @@ export function DeskApp() {
           <div className="min-w-0">
             <p className="text-lg font-medium leading-tight">Macman</p>
             <p className="max-w-48 text-xs leading-snug break-all text-mute">
-              {home?.alias ?? "Opening your desk"}
+              {home?.alias ?? t.openingDesk}
             </p>
           </div>
         </div>
@@ -100,11 +105,15 @@ export function DeskApp() {
               <span className="grid size-8 place-items-center rounded-full bg-card text-xs font-medium">
                 G
               </span>
-              Grok user
+              {t.grokUser}
             </>
           ) : (
-            <span className="text-mute">Signed in</span>
+            <span className="text-mute">{t.signedIn}</span>
           )}
+        </div>
+        </div>
+        <div className="mt-3 flex justify-end">
+          <LanguageSwitch />
         </div>
       </header>
 
@@ -112,7 +121,7 @@ export function DeskApp() {
         <Home
           home={home}
           error={homeError}
-          onOpen={setView}
+          onOpen={(channel) => setView(channel)}
           onTrade={() => setView("trading")}
           onSports={() => setView("sports")}
           onAccount={() => setView("account")}
@@ -163,6 +172,7 @@ function Home({
   onAccount: () => void;
   onMemories: (memories: SavedMemory[]) => void;
 }) {
+  const { t, lang } = useI18n();
   const [removing, setRemoving] = useState<string | null>(null);
   const [memoryNote, setMemoryNote] = useState<string | null>(null);
   const memories = home?.memories ?? [];
@@ -175,7 +185,7 @@ function Home({
       const next = await forgetSavedMemory({ data: { id } });
       onMemories(next);
     } catch (error) {
-      setMemoryNote(errorText(error));
+      setMemoryNote(errorText(error, t, lang));
     } finally {
       setRemoving(null);
     }
@@ -183,25 +193,25 @@ function Home({
 
   return (
     <div className="flex flex-1 flex-col px-5 pt-8 pb-10">
-      <p className="text-xs font-medium tracking-widest text-copper uppercase">Your desk</p>
+      <p className="text-xs font-medium tracking-widest text-copper uppercase">{t.accountTitle}</p>
       <h1 className="mt-4 font-serif text-5xl leading-none font-medium tracking-tight text-cream">
-        Four lines.
+        {t.fourLines}
         <br />
-        One memory.
+        {t.oneMemory}
       </h1>
       <p className="mt-5 max-w-md text-base leading-relaxed text-cream/90">
-        All four lines answer here. Mail and text stay on this account
+        {t.homeIntro}
         {home?.alias ? (
           <>
             {" "}
-            under <span className="break-all text-mute">{home.alias}</span>
+            <span className="break-all text-mute">{home.alias}</span>
           </>
         ) : null}
-        . They are not delivered to a phone or outside inbox.
+        {t.notDelivered}
       </p>
       {memories.length > 0 ? (
         <div className="mt-6 flex flex-col gap-3">
-          <p className="text-xs font-medium tracking-widest text-copper uppercase">Saved memories</p>
+          <p className="text-xs font-medium tracking-widest text-copper uppercase">{t.savedMemories}</p>
           {memories.map((item) => (
             <div key={item.id} className="flex items-start justify-between gap-3 border-l-2 border-copper pl-4">
               <p className="text-sm leading-relaxed text-mute">{item.content}</p>
@@ -211,7 +221,7 @@ function Home({
                 disabled={removing === item.id}
                 className="min-h-11 shrink-0 text-sm text-copper disabled:opacity-50"
               >
-                {removing === item.id ? "Removing…" : "Remove"}
+                {removing === item.id ? t.removing : t.remove}
               </button>
             </div>
           ))}
@@ -235,8 +245,18 @@ function Home({
             >
               <Icon className="size-6 shrink-0 text-copper" strokeWidth={1.75} />
               <span>
-                <span className="block text-lg font-medium leading-tight">{card.title}</span>
-                <span className="mt-1 block text-sm text-mute">{card.hint}</span>
+                <span className="block text-lg font-medium leading-tight">
+                  {card.id === "desk" ? t.desk : card.id === "voice" ? t.voice : card.id === "mail" ? t.mail : t.text}
+                </span>
+                <span className="mt-1 block text-sm text-mute">
+                  {card.id === "desk"
+                    ? t.deskHint
+                    : card.id === "voice"
+                      ? t.voiceHint
+                      : card.id === "mail"
+                        ? t.mailHint
+                        : t.textHint}
+                </span>
               </span>
             </button>
           );
@@ -244,39 +264,40 @@ function Home({
       </div>
       <div className="mt-3 grid grid-cols-2 gap-3">
         <button type="button" onClick={onTrade} className="min-h-20 rounded-3xl border-2 border-transparent bg-card px-4 py-4 text-left">
-          <span className="block text-lg font-medium">Trading</span>
-          <span className="mt-1 block text-sm text-mute">A daily quote</span>
+          <span className="block text-lg font-medium">{t.trading}</span>
+          <span className="mt-1 block text-sm text-mute">{t.tradingHint}</span>
         </button>
         <button type="button" onClick={onSports} className="min-h-20 rounded-3xl border-2 border-transparent bg-card px-4 py-4 text-left">
-          <span className="block text-lg font-medium">Sports</span>
-          <span className="mt-1 block text-sm text-mute">Scores, not bets</span>
+          <span className="block text-lg font-medium">{t.sports}</span>
+          <span className="mt-1 block text-sm text-mute">{t.sportsHint}</span>
         </button>
       </div>
       <div className="mt-10 flex items-center justify-between text-sm text-mute">
         <UserButton />
         <button type="button" onClick={onAccount} className="min-h-11">
-          Account
+          {t.account}
         </button>
         <button type="button" onClick={() => void signOutMacman()} className="min-h-11">
-          Sign out
+          {t.signOut}
         </button>
       </div>
     </div>
   );
 }
 
-function sourceLabel(url: string): string {
+function sourceLabel(url: string, fallback: string): string {
   try {
     const parsed = new URL(url);
     const host = parsed.hostname.replace(/^www\./, "");
     const path = parsed.pathname === "/" ? "" : parsed.pathname;
     return path && path.length < 32 ? `${host}${path}` : host;
   } catch {
-    return "Source";
+    return fallback;
   }
 }
 
 function MessageBody({ body }: { body: string }) {
+  const { t } = useI18n();
   const [prose, listed] = body.split("\n\nSources\n");
   const sources = [...new Set((listed ?? "").split("\n").map((line) => line.trim()))].filter((line) =>
     /^https:\/\/\S+$/.test(line),
@@ -289,7 +310,7 @@ function MessageBody({ body }: { body: string }) {
           {sources.map((url) => (
             <li key={url}>
               <a href={url} target="_blank" rel="noreferrer" className="text-sm text-copper underline">
-                {sourceLabel(url)}
+                {sourceLabel(url, t.source)}
               </a>
             </li>
           ))}
@@ -311,6 +332,7 @@ function ChannelView({
   onMemory: (memory: string | null, memories?: SavedMemory[]) => void;
 }) {
   const card = CARDS.find((item) => item.id === channel)!;
+  const { t, lang } = useI18n();
   const [lines, setLines] = useState<Line[] | null>(null);
   const [draft, setDraft] = useState("");
   const [subject, setSubject] = useState("");
@@ -329,7 +351,7 @@ function ChannelView({
       .catch((error: unknown) => {
         if (!cancel) {
           setLines([]);
-          setNote(errorText(error));
+          setNote(errorText(error, t, lang));
         }
       });
     return () => {
@@ -341,7 +363,7 @@ function ChannelView({
     const body = draft.trim();
     if (!body || busy) return;
     if (channel === "text" && !optedIn && body.toUpperCase() !== "STOP") {
-      setNote("Opt in before a simulated text. STOP is always accepted.");
+      setNote(t.optInText);
       return;
     }
     setBusy(true);
@@ -350,30 +372,30 @@ function ChannelView({
       if (channel === "desk" || channel === "voice") {
         const result =
           channel === "desk"
-            ? await sendDesk({ data: { body, timeZone: localZone() } })
-            : await sendVoice({ data: { body, timeZone: localZone() } });
+            ? await sendDesk({ data: { body, timeZone: localZone(), language: lang } })
+            : await sendVoice({ data: { body, timeZone: localZone(), language: lang } });
         setLines((current) => [
           ...(current ?? []),
           result.line,
           ...(result.reply ? [result.reply] : []),
         ]);
         onMemory(result.memory, result.memories);
-        if (!result.reply) setNote("Kept. The desk has no answer yet.");
+        if (!result.reply) setNote(t.keptQuiet);
       } else if (channel === "mail") {
-        const result = await saveMail({ data: { subject, body, timeZone: localZone() } });
+        const result = await saveMail({ data: { subject, body, timeZone: localZone(), language: lang } });
         setLines((current) => [...(current ?? []), result.line, ...(result.reply ? [result.reply] : [])]);
         onMemory(result.memory, result.memories);
         setSubject("");
-        setNote(result.reply ? "Answered here. Not delivered." : "Kept. The desk has no answer yet.");
+        setNote(result.reply ? t.answeredMail : t.keptQuiet);
       } else {
-        const result = await saveText({ data: { body, timeZone: localZone() } });
+        const result = await saveText({ data: { body, timeZone: localZone(), language: lang } });
         setLines((current) => [...(current ?? []), result.line, ...(result.reply ? [result.reply] : [])]);
         onMemory(result.memory, result.memories);
-        setNote(result.reply ? "Answered here. Not sent." : "Kept. The desk has no answer yet.");
+        setNote(result.reply ? t.answeredText : t.keptQuiet);
       }
       setDraft("");
     } catch (error) {
-      setNote(errorText(error));
+      setNote(errorText(error, t, lang));
     } finally {
       setBusy(false);
     }
@@ -384,13 +406,13 @@ function ChannelView({
     setNote(null);
     try {
       const result = await practiceCarrier({
-        data: { kind: "voice", body, simulated: true, timeZone: localZone() },
+        data: { kind: "voice", body, simulated: true, timeZone: localZone(), language: lang },
       });
       setLines((current) => [...(current ?? []), result.line, ...(result.reply ? [result.reply] : [])]);
       onMemory(result.memory, result.memories);
-      setNote("Simulated. Nothing was dialed.");
+      setNote(t.simulatedCall);
     } catch (error) {
-      setNote(errorText(error));
+      setNote(errorText(error, t, lang));
     } finally {
       setBusy(false);
     }
@@ -400,13 +422,13 @@ function ChannelView({
     setBusy(true);
     setNote(null);
     try {
-      const result = await sendVoice({ data: { body, timeZone: localZone() } });
+      const result = await sendVoice({ data: { body, timeZone: localZone(), language: lang } });
       setLines((current) => [...(current ?? []), result.line, ...(result.reply ? [result.reply] : [])]);
       onMemory(result.memory, result.memories);
-      if (!result.reply) setNote("Kept. The desk has no answer yet.");
+      if (!result.reply) setNote(t.keptQuiet);
       return result.reply?.id ?? null;
     } catch (error) {
-      setNote(errorText(error));
+      setNote(errorText(error, t, lang));
       return null;
     } finally {
       setBusy(false);
@@ -424,7 +446,7 @@ function ChannelView({
     setHearing(lineId);
     setNote(null);
     try {
-      const result = await hearLine({ data: { lineId, voiceId: selected } });
+      const result = await hearLine({ data: { lineId, voiceId: selected, language: lang } });
       if (!result.ok) {
         setNote(result.error);
         return;
@@ -437,12 +459,12 @@ function ChannelView({
         audio.onended = done;
         audio.onpause = done;
         void audio.play().catch(() => {
-          setNote("Tap Hear it to play that reply.");
+          setNote(t.hearTap);
           done();
         });
       });
     } catch (error) {
-      setNote(errorText(error));
+      setNote(errorText(error, t, lang));
     } finally {
       setHearing(null);
     }
@@ -456,28 +478,28 @@ function ChannelView({
           onClick={onBack}
           className="min-h-11 rounded-full px-3 text-sm text-mute hover:text-cream"
         >
-          Desk
+          {t.desk}
         </button>
-        <h2 className="font-serif text-3xl">{card.title}</h2>
+        <h2 className="font-serif text-3xl">
+          {channel === "desk" ? t.desk : channel === "voice" ? t.voice : channel === "mail" ? t.mail : t.text}
+        </h2>
       </div>
       <p className="px-5 pt-2 text-sm leading-relaxed text-mute">
-        {channel === "desk" && "Write it here. A current question is checked on the web. A private one stays on the desk."}
-        {channel === "voice" && "A browser call listens, answers aloud, then listens again. A phone call is not connected."}
-        {channel === "mail" &&
-          `A letter on ${alias || "your alias"}. Answered here. An outside inbox is not connected, and nothing is sent without your confirmation.`}
-        {channel === "text" &&
-          "A short line, answered here. Simulated only. Reply STOP to opt out. Nothing is sent to a phone."}
+        {channel === "desk" && t.deskBlurb}
+        {channel === "voice" && t.voiceBlurb}
+        {channel === "mail" && t.mailBlurb}
+        {channel === "text" && t.textBlurb}
       </p>
       <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-5 py-6">
         {lines === null ? (
-          <p className="text-sm text-mute">Opening…</p>
+          <p className="text-sm text-mute">{t.opening}</p>
         ) : lines.length === 0 ? (
-          <p className="text-sm text-mute">Nothing kept yet.</p>
+          <p className="text-sm text-mute">{t.nothingKept}</p>
         ) : (
           lines.map((line) => (
             <article key={line.id}>
               <p className="text-xs tracking-widest text-copper uppercase">
-                {line.role === "person" ? "You" : "Macman"}
+                {line.role === "person" ? t.you : "Macman"}
               </p>
               {line.subject ? <p className="mt-1 text-sm text-mute">{line.subject}</p> : null}
               <MessageBody body={line.body} />
@@ -489,13 +511,13 @@ function ChannelView({
                   className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-full border border-copper px-4 text-sm text-copper disabled:opacity-60"
                 >
                   <Volume2 className="size-4" />
-                  {hearing === line.id ? "Playing…" : "Hear it"}
+                  {hearing === line.id ? t.playing : t.hearIt}
                 </button>
               ) : null}
             </article>
           ))
         )}
-        {busy ? <p className="text-sm text-copper">The desk is writing…</p> : null}
+        {busy ? <p className="text-sm text-copper">{t.writing}</p> : null}
         {note ? <p className="text-sm text-mute">{note}</p> : null}
       </div>
       {channel === "voice" ? (
@@ -516,14 +538,14 @@ function ChannelView({
               onChange={(event) => setOptedIn(event.target.checked)}
               className="mt-1 size-4"
             />
-            Allow simulated texts on this account. STOP opts out. Nothing is sent to a phone.
+            {t.textConsent}
           </label>
         ) : null}
         {channel === "mail" ? (
           <input
             value={subject}
             onChange={(event) => setSubject(event.target.value)}
-            placeholder="Subject"
+            placeholder={t.subject}
             maxLength={120}
             className="mb-2 w-full rounded-2xl border border-edge bg-card px-4 py-3 text-base text-cream outline-none placeholder:text-mute"
           />
@@ -533,7 +555,7 @@ function ChannelView({
           onChange={(event) => setDraft(event.target.value)}
           rows={channel === "text" ? 2 : 3}
           maxLength={channel === "text" ? 160 : channel === "mail" ? 4000 : 2000}
-          placeholder={card.hint}
+          placeholder={channel === "mail" ? t.mailHint : channel === "text" ? t.textHint : t.deskHint}
           className="min-h-12 w-full resize-none rounded-2xl border border-edge bg-card px-4 py-3 text-base text-cream outline-none placeholder:text-mute"
         />
         <button
@@ -541,7 +563,7 @@ function ChannelView({
           disabled={busy || !draft.trim()}
           className="mt-3 min-h-12 w-full rounded-full bg-copper text-base font-medium text-ink disabled:opacity-50"
         >
-          {channel === "mail" ? "Ask in the letter" : channel === "text" ? "Ask by text" : "Ask the desk"}
+          {channel === "mail" ? t.askLetter : channel === "text" ? t.askText : t.askDesk}
         </button>
       </form>
       )}

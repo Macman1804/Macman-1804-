@@ -2,6 +2,7 @@ import { SEARCH_MODEL, checkAgainstSources, isMarketQuote, isNewsQuery, parseSea
 import { searchEvent, type SearchStage } from "@/lib/search/diagnose";
 import { marketCoin, presentMarketFeed } from "@/lib/search/market";
 import { NAME_A_CITY, isWeatherQuery, presentWeather, weatherPlace } from "@/lib/search/weather";
+import { parseLang, type Lang } from "@/lib/i18n/language";
 
 function note(stage: SearchStage, status: number | null = null) {
   console.info(JSON.stringify(searchEvent(stage, status)));
@@ -61,15 +62,19 @@ async function readPublicPage(start: string): Promise<string | null> {
   return null;
 }
 
-async function weatherLookup(query: string): Promise<{ ok: true; body: string; sources: LiveSource[] } | { ok: false }> {
+async function weatherLookup(query: string, language: Lang): Promise<{ ok: true; body: string; sources: LiveSource[] } | { ok: false }> {
   const place = weatherPlace(query);
   if (!place) {
     note("weather_ok");
-    return { ok: true, body: NAME_A_CITY, sources: [] };
+    return {
+      ok: true,
+      body: language === "es" ? "Nombra una ciudad y puedo consultar el clima." : NAME_A_CITY,
+      sources: [],
+    };
   }
   try {
     const geoRes = await fetch(
-      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(place)}&count=1&language=en&format=json`,
+      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(place)}&count=1&language=${language}&format=json`,
       { signal: AbortSignal.timeout(8000), headers: { Accept: "application/json" } },
     );
     if (!geoRes.ok) {
@@ -94,6 +99,7 @@ async function weatherLookup(query: string): Promise<{ ok: true; body: string; s
       name: hit.name,
       region: typeof hit.admin1 === "string" ? hit.admin1 : null,
       payload: await forecast.json(),
+      lang: language,
     });
     note(shown.ok ? "weather_ok" : "weather_unavailable", forecast.status);
     return shown;
@@ -105,8 +111,10 @@ async function weatherLookup(query: string): Promise<{ ok: true; body: string; s
 
 export async function liveSearch(
   query: string,
+  language: Lang = "en",
 ): Promise<{ ok: true; body: string; sources: LiveSource[] } | { ok: false }> {
-  if (isWeatherQuery(query)) return weatherLookup(query);
+  const lang = parseLang(language);
+  if (isWeatherQuery(query)) return weatherLookup(query, lang);
   const coin = marketCoin(query);
   if (coin) {
     try {
@@ -118,7 +126,7 @@ export async function liveSearch(
         note("market_unavailable", res.status);
         return { ok: false };
       }
-      const shown = presentMarketFeed(coin, await res.json());
+      const shown = presentMarketFeed(coin, await res.json(), Date.now(), lang);
       note(shown.ok ? "market_ok" : "market_unavailable", res.status);
       return shown;
     } catch {
@@ -146,9 +154,11 @@ export async function liveSearch(
         input: [
           {
             role: "system",
-            content: market
-              ? "Answer from web search only. Prefer Yahoo Finance, CoinGecko, Coinbase, Reuters, Nasdaq, or the exchange itself. Quote a price or a time only if the page states it. Do not invent a time zone or call a quote live unless the page says so. Two short sentences."
-              : "Answer from web search only. Two short sentences. If sources disagree, say they disagree. Do not invent a URL, a price, a score, or a date. If you cannot verify it, say you could not verify it.",
+            content:
+              (market
+                ? "Answer from web search only. Prefer Yahoo Finance, CoinGecko, Coinbase, Reuters, Nasdaq, or the exchange itself. Quote a price or a time only if the page states it. Do not invent a time zone or call a quote live unless the page says so. Two short sentences."
+                : "Answer from web search only. Two short sentences. If sources disagree, say they disagree. Do not invent a URL, a price, a score, or a date. If you cannot verify it, say you could not verify it.") +
+              (lang === "es" ? " Reply in Spanish." : " Reply in English."),
           },
           { role: "user", content: query },
         ],

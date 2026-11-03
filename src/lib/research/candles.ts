@@ -1,3 +1,5 @@
+import { parseLang, type Lang } from "../i18n/language.ts";
+
 export type Bar = { time: number; open: number; high: number; low: number; close: number; volume: number };
 
 export function ema(values: number[], period: number): number | null {
@@ -72,41 +74,58 @@ export function vwap(bars: Bar[]): number | null {
   return volume > 0 ? total / volume : null;
 }
 
-function money(value: number): string {
-  return value.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
+function money(value: number, lang: Lang = "en"): string {
+  return value.toLocaleString(lang === "es" ? "es-ES" : "en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
 }
 
-export function assess(bars: Bar[]): string {
+export function assess(bars: Bar[], language: Lang = "en"): string {
+  const lang = parseLang(language);
   const closes = bars.map((bar) => bar.close);
   const price = closes[closes.length - 1];
   const ema50 = ema(closes, 50);
   const momentum = rsi(closes);
   if (price === undefined || ema50 === null || momentum === null || bars.length < 30) {
-    return "WAIT — NO CONFIRMED SETUP. There are not enough daily bars.";
+    return lang === "es"
+      ? "ESPERA — NO HAY UNA CONFIGURACIÓN CONFIRMADA. No hay suficientes velas diarias."
+      : "WAIT — NO CONFIRMED SETUP. There are not enough daily bars.";
   }
   const trendUp = price > ema50;
   const momentumUp = momentum >= 55;
   const momentumDown = momentum <= 45;
   if (!((trendUp && momentumUp) || (!trendUp && momentumDown))) {
-    return "WAIT — NO CONFIRMED SETUP. The daily trend and momentum disagree. This is not a guaranteed outcome.";
+    return lang === "es"
+      ? "ESPERA — NO HAY UNA CONFIGURACIÓN CONFIRMADA. La tendencia diaria y el impulso no coinciden. Esto no es un resultado garantizado."
+      : "WAIT — NO CONFIRMED SETUP. The daily trend and momentum disagree. This is not a guaranteed outcome.";
   }
   const recent = bars.slice(-20);
   const support = Math.min(...recent.map((bar) => bar.low));
   const resistance = Math.max(...recent.map((bar) => bar.high));
   const range = atr(bars);
-  const lean = trendUp ? "bullish" : "bearish";
+  const lean = trendUp ? (lang === "es" ? "alcista" : "bullish") : lang === "es" ? "bajista" : "bearish";
   const stop = range === null ? null : trendUp ? support - range : resistance + range;
   const entry = trendUp ? support : resistance;
   const target = trendUp ? resistance : support;
   const reward = Math.abs(target - entry);
   const risk = stop === null ? null : Math.abs(entry - stop);
   const ratio = risk && risk > 0 ? (reward / risk).toFixed(1) : null;
-  return [
+  return lang === "es"
+    ? [
+        `La evidencia diaria es ${lean}. Esto no es un resultado garantizado ni una orden.`,
+        `El soporte reciente es ${money(support, lang)}. La resistencia reciente es ${money(resistance, lang)}.`,
+        stop === null
+          ? "No se puede fijar un stop porque falta el rango promedio."
+          : `Un escenario usa ${money(entry, lang)} como zona y ${money(stop, lang)} como invalidación.`,
+        ratio ? `Si esos niveles se mantienen, el riesgo/beneficio ilustrado es ${ratio} a 1.` : "",
+        "La idea queda invalidada si el siguiente cierre diario cruza la media de 50 días en sentido contrario.",
+      ]
+        .filter(Boolean)
+        .join(" ")
+    : [
     `The daily evidence is ${lean}. This is not a guaranteed outcome and it is not an order.`,
-    `Recent support is ${money(support)}. Recent resistance is ${money(resistance)}.`,
+    `Recent support is ${money(support, lang)}. Recent resistance is ${money(resistance, lang)}.`,
     stop === null
       ? "A stop cannot be set because the average range is missing."
-      : `A scenario uses ${money(entry)} as the zone and ${money(stop)} as the invalidation.`,
+      : `A scenario uses ${money(entry, lang)} as the zone and ${money(stop, lang)} as the invalidation.`,
     ratio ? `If those levels hold, the illustrated risk/reward is ${ratio} to 1.` : "",
     "The setup is invalidated if the next daily close crosses the 50-day average the other way.",
   ]

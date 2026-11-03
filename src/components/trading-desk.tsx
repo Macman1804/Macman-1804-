@@ -1,8 +1,10 @@
 import { useState, type FormEvent } from "react";
 import { lookupSymbol } from "@/lib/research.functions";
 import { optionScenario } from "@/lib/research/bets";
+import { useI18n } from "@/lib/i18n/provider";
 
 export function TradingDesk({ onBack }: { onBack: () => void }) {
+  const { t, lang } = useI18n();
   const [symbol, setSymbol] = useState("AAPL");
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -16,10 +18,10 @@ export function TradingDesk({ onBack }: { onBack: () => void }) {
     setBusy(true);
     setNote(null);
     try {
-      const result = await lookupSymbol({ data: { symbol } });
+      const result = await lookupSymbol({ data: { symbol, language: lang } });
       setNote(result.text);
     } catch (error) {
-      setNote(error instanceof Error ? error.message : "That quote could not be verified.");
+      setNote(error instanceof Error ? error.message : t.quoteFailed);
     } finally {
       setBusy(false);
     }
@@ -32,23 +34,22 @@ export function TradingDesk({ onBack }: { onBack: () => void }) {
       strike: Number(strike),
       premium: Number(premium),
       sharePrice: null,
+      lang,
     });
-    setLesson(shown.ok ? shown.text : "Enter a strike and a premium you already know. No contract is quoted.");
+    setLesson(shown.ok ? shown.text : t.optionInvalid);
   }
 
   return (
     <div className="flex flex-1 flex-col px-5 pt-5 pb-10">
       <button type="button" onClick={onBack} className="min-h-11 self-start text-sm text-mute">
-        Desk
+        {t.desk}
       </button>
-      <p className="mt-4 text-xs font-medium tracking-widest text-copper uppercase">Trading</p>
-      <h1 className="mt-3 font-serif text-4xl text-cream">Markets</h1>
-      <p className="mt-3 text-sm leading-relaxed text-mute">
-        Daily prices come from Yahoo Finance. Bitcoin, Ethereum, Solana, XRP, and Cardano still come from CoinGecko. This does not place a trade.
-      </p>
+      <p className="mt-4 text-xs font-medium tracking-widest text-copper uppercase">{t.trading}</p>
+      <h1 className="mt-3 font-serif text-4xl text-cream">{t.markets}</h1>
+      <p className="mt-3 text-sm leading-relaxed text-mute">{t.tradingIntro}</p>
       <form onSubmit={(event) => void lookup(event)} className="mt-6 flex flex-col gap-3">
         <label className="text-sm text-mute" htmlFor="symbol">
-          Symbol
+          {t.symbol}
         </label>
         <input
           id="symbol"
@@ -58,29 +59,29 @@ export function TradingDesk({ onBack }: { onBack: () => void }) {
           className="min-h-12 rounded-2xl border border-edge bg-card px-4 text-base text-cream outline-none"
         />
         <button type="submit" disabled={busy} className="min-h-12 rounded-full bg-copper text-base font-medium text-ink disabled:opacity-50">
-          {busy ? "Checking…" : "Look up"}
+          {busy ? t.checking : t.lookUp}
         </button>
       </form>
       {note ? <p className="mt-4 text-sm leading-relaxed whitespace-pre-wrap text-cream">{note}</p> : null}
       <form onSubmit={teach} className="mt-8 flex flex-col gap-3">
-        <p className="text-xs tracking-widest text-copper uppercase">Option lesson</p>
-        <p className="text-sm text-mute">No chain is loaded. The numbers below are the ones you type.</p>
+        <p className="text-xs tracking-widest text-copper uppercase">{t.optionLesson}</p>
+        <p className="text-sm text-mute">{t.optionHelp}</p>
         <input
           value={strike}
           onChange={(event) => setStrike(event.target.value)}
           inputMode="decimal"
-          aria-label="Strike"
+          aria-label={t.strike}
           className="min-h-12 rounded-2xl border border-edge bg-card px-4 text-base text-cream outline-none"
         />
         <input
           value={premium}
           onChange={(event) => setPremium(event.target.value)}
           inputMode="decimal"
-          aria-label="Premium"
+          aria-label={t.premium}
           className="min-h-12 rounded-2xl border border-edge bg-card px-4 text-base text-cream outline-none"
         />
         <button type="submit" className="min-h-12 rounded-full border border-copper text-base text-copper">
-          Explain a long call
+          {t.explainCall}
         </button>
       </form>
       {lesson ? <p className="mt-4 text-sm leading-relaxed text-cream">{lesson}</p> : null}

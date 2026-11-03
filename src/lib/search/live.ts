@@ -9,7 +9,7 @@ const DATE_ONLY =
   /\b(today'?s date|what(?:'s| is) the date|what day is it|what(?:'s| is) today)\b/i;
 
 const LIVE =
-  /\b(news|headline|breaking|stock|stocks|share price|nasdaq|dow\b|s&p|market|bitcoin|btc|crypto|weather|forecast|temperature|score|scores|standings|who won|price of|how much is|how much does|law|statute|regulation|bill|election|earthquake|hurricane|right now|this week|yesterday|latest|current)\b/i;
+  /\b(news|headline|breaking|stock|stocks|share price|nasdaq|dow\b|s&p|market|bitcoin|btc|crypto|weather|forecast|temperature|score|scores|standings|who won|price of|how much is|how much does|law|statute|regulation|bill|election|earthquake|hurricane|right now|this week|yesterday|latest|current|noticias|noticia|titulares|clima|pron[oó]stico|temperatura|precio|cotizaci[oó]n|mercado|marcador|terremoto|hurac[aá]n|elecci[oó]n)\b/i;
 
 /** True only when the question asks for the outside world, not a private desk fact. */
 export function needsLiveLookup(body: string): boolean {
@@ -279,7 +279,7 @@ export function presentNews(
 }
 
 export function isNewsQuery(query: string): boolean {
-  return /\b(news|headline|headlines)\b/i.test(query);
+  return /\b(news|headline|headlines|noticias|noticia|titulares)\b/i.test(query);
 }
 
 export function spokenText(body: string): string {

@@ -2,18 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { Mic, MicOff, PhoneOff } from "lucide-react";
 import { transcribeSpeech } from "@/lib/desk.functions";
 import { publicError } from "@/lib/security/public-error";
-import { SETUP_CHECKLIST } from "@/lib/telephony/exchange";
 import { reduceCall, type CallPhase } from "@/lib/voice/call-machine";
 import { MIN_BYTES, nextUtterance } from "@/lib/voice/utterance";
 import { VOICES, voiceId, type VoiceId } from "@/lib/voice/voices";
-
-const PHASE_LABEL: Record<CallPhase, string> = {
-  idle: "Browser call is ready",
-  listening: "Listening",
-  thinking: "The desk is answering",
-  speaking: "Speaking",
-  muted: "Muted",
-};
+import { useI18n } from "@/lib/i18n/provider";
 
 function recorderMime(): string {
   if (typeof MediaRecorder === "undefined") return "";
@@ -36,6 +28,14 @@ export function VoiceCall({
   onHear: (lineId: string, voice: VoiceId) => Promise<void>;
   onStop: () => void;
 }) {
+  const { t, lang } = useI18n();
+  const phaseLabel = {
+    idle: t.phaseIdle,
+    listening: t.phaseListening,
+    thinking: t.phaseThinking,
+    speaking: t.phaseSpeaking,
+    muted: t.phaseMuted,
+  } satisfies Record<CallPhase, string>;
   const [phase, setPhaseState] = useState<CallPhase>("idle");
   const [voice, setVoice] = useState<VoiceId>("eve");
   const [note, setNote] = useState<string | null>(null);
@@ -91,7 +91,7 @@ export function VoiceCall({
   function beginRecording() {
     if (!live.current || muted.current || taking.current || !streamRef.current) return;
     if (typeof MediaRecorder === "undefined") {
-      setNote("This phone cannot record audio for transcription. Type the line instead.");
+      setNote(t.noRecorder);
       return;
     }
     const mime = recorderMime();
@@ -99,7 +99,7 @@ export function VoiceCall({
     try {
       recorder = new MediaRecorder(streamRef.current, mime ? { mimeType: mime } : undefined);
     } catch {
-      setNote("This phone cannot record audio for transcription. Type the line instead.");
+      setNote(t.noRecorder);
       return;
     }
     chunksRef.current = [];
@@ -123,15 +123,15 @@ export function VoiceCall({
   async function finishRecording(blob: Blob) {
     if (!live.current || muted.current) return;
     if (blob.size < MIN_BYTES) {
-      setNote("No words were captured. Speak a little closer and try again.");
+      setNote(t.noWords);
       resumeListening();
       return;
     }
-    setHeard("Transcribing…");
+    setHeard(t.transcribing);
     setNote(null);
     try {
       const audio = await blobToBase64(blob);
-      const result = await transcribeSpeech({ data: { audio, mime: blob.type } });
+      const result = await transcribeSpeech({ data: { audio, mime: blob.type, language: lang } });
       if (!live.current) return;
       if (!result.ok) {
         setHeard("");
@@ -143,7 +143,7 @@ export function VoiceCall({
       await turn(result.text);
     } catch (error) {
       setHeard("");
-      setNote(error instanceof Error && error.message ? error.message : "Transcription failed. Speak the line again.");
+      setNote(publicError(error instanceof Error ? error.message : "", t.transcribeFail, lang));
       resumeListening();
     }
   }
@@ -185,7 +185,7 @@ export function VoiceCall({
     }
     flushRef.current = false;
     taking.current = false;
-    setNote("Nothing was recorded yet. Speak, then send it.");
+    setNote(t.nothingRecorded);
   }
 
   async function turn(said: string) {
@@ -207,8 +207,8 @@ export function VoiceCall({
       const dropped = typeof navigator !== "undefined" && navigator.onLine === false;
       setNote(
         dropped
-          ? "The connection dropped. Try that line again."
-          : publicError(error instanceof Error ? error.message : "", "The desk could not answer."),
+          ? t.connectionDropped
+          : publicError(error instanceof Error ? error.message : "", t.deskCouldNot, lang),
       );
       if (!live.current) setPhase("idle");
       else if (muted.current) setPhase("muted");
@@ -243,7 +243,7 @@ export function VoiceCall({
     } catch {
       releaseMic();
       apply({ type: "denied" });
-      setNote("The microphone was not allowed. You can still type a line.");
+      setNote(t.micDenied);
     }
   }
 
@@ -291,18 +291,18 @@ export function VoiceCall({
 
   return (
     <div className="border-t border-line px-5 py-4">
-      <p className="text-xs font-medium tracking-widest text-copper uppercase">Browser call</p>
+      <p className="text-xs font-medium tracking-widest text-copper uppercase">{t.browserCall}</p>
       <p className="mt-2 text-sm leading-relaxed text-mute">
         {phase === "listening" && pickingUp
-          ? "Hearing you. Pause, or tap Send what I said."
+          ? t.hearingYou
           : phase === "listening"
-            ? "Listening. Speak, then pause."
+            ? t.listeningSpeak
             : phase === "muted"
-              ? "Muted. Tap Unmute to speak again."
-              : `${PHASE_LABEL[phase]}.`}{" "}
-        Your microphone stays on this device. This is not a phone call.
+              ? t.mutedHelp
+              : `${phaseLabel[phase]}.`}{" "}
+        {t.micLocal}
       </p>
-      {heard ? <p className="mt-3 text-base leading-relaxed text-cream">Heard: {heard}</p> : null}
+      {heard ? <p className="mt-3 text-base leading-relaxed text-cream">{t.heard} {heard}</p> : null}
       <div className="mt-3 flex gap-2">
         {phase === "idle" ? (
           <button
@@ -311,7 +311,7 @@ export function VoiceCall({
             className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-full bg-copper px-4 text-base font-medium text-ink"
           >
             <Mic className="size-4" />
-            Start browser call
+            {t.startCall}
           </button>
         ) : (
           <>
@@ -321,7 +321,7 @@ export function VoiceCall({
               className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-full border border-copper px-4 text-sm text-copper"
             >
               <MicOff className="size-4" />
-              {phase === "muted" ? "Unmute" : "Mute"}
+              {phase === "muted" ? t.unmute : t.mute}
             </button>
             <button
               type="button"
@@ -329,7 +329,7 @@ export function VoiceCall({
               className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-full bg-copper px-4 text-base font-medium text-ink"
             >
               <PhoneOff className="size-4" />
-              End call
+              {t.endCall}
             </button>
           </>
         )}
@@ -340,11 +340,11 @@ export function VoiceCall({
           onClick={flushRecording}
           className="mt-2 min-h-12 w-full rounded-full border border-copper text-base text-copper"
         >
-          Send what I said
+          {t.sendSaid}
         </button>
       ) : null}
       <label className="mt-3 block text-sm text-mute">
-        Voice
+        {t.voiceLabel}
         <select
           value={voice}
           onChange={(event) => choose(voiceId(event.target.value))}
@@ -352,7 +352,7 @@ export function VoiceCall({
         >
           {VOICES.map((item) => (
             <option key={item.id} value={item.id}>
-              {item.label} — {item.tone}
+              {item.label} — {item.id === "eve" ? t.toneEve : item.id === "ara" ? t.toneAra : item.id === "rex" ? t.toneRex : item.id === "sal" ? t.toneSal : t.toneLeo}
             </option>
           ))}
         </select>
@@ -373,7 +373,7 @@ export function VoiceCall({
           onChange={(event) => setDraft(event.target.value)}
           rows={2}
           maxLength={2000}
-          placeholder="Or type a line"
+          placeholder={t.orType}
           className="min-h-12 w-full resize-none rounded-2xl border border-edge bg-card px-4 py-3 text-base text-cream outline-none placeholder:text-mute"
         />
         <button
@@ -381,20 +381,28 @@ export function VoiceCall({
           disabled={busy || !draft.trim()}
           className="mt-2 min-h-12 w-full rounded-full border border-edge text-base text-cream disabled:opacity-50"
         >
-          Ask the desk
+          {t.askDesk}
         </button>
       </form>
       {note ? <p className="mt-3 text-sm leading-relaxed text-copper">{note}</p> : null}
       <div className="mt-4 rounded-2xl border border-edge bg-card px-4 py-3">
-        <p className="text-xs font-medium tracking-widest text-copper uppercase">Telephone</p>
-        <p className="mt-2 text-sm leading-relaxed text-mute">
-          Not connected. No credentials are stored, no number is attached, and no call or text is sent.
-        </p>
+        <p className="text-xs font-medium tracking-widest text-copper uppercase">{t.telephone}</p>
+        <p className="mt-2 text-sm leading-relaxed text-mute">{t.phoneOffDetail}</p>
         <ol className="mt-3 flex flex-col gap-2">
-          {SETUP_CHECKLIST.map((step, index) => (
-            <li key={step.id} className="text-sm leading-relaxed text-mute">
-              <span className="text-copper">{index + 1}. {step.title}. </span>
-              {step.detail}
+          {(
+            [
+              ["desktop", t.stepDesktop, t.stepDesktopDetail],
+              ["key", t.stepKey, t.stepKeyDetail],
+              ["secrets", t.stepSecrets, t.stepSecretsDetail],
+              ["verify", t.stepVerify, t.stepVerifyDetail],
+              ["regulatory", t.stepRegulatory, t.stepRegulatoryDetail],
+              ["number", t.stepNumber, t.stepNumberDetail],
+              ["webhooks", t.stepWebhooks, t.stepWebhooksDetail],
+            ] as const
+          ).map(([id, title, detail], index) => (
+            <li key={id} className="text-sm leading-relaxed text-mute">
+              <span className="text-copper">{index + 1}. {title}. </span>
+              {detail}
             </li>
           ))}
         </ol>
@@ -410,9 +418,9 @@ export function VoiceCall({
           }}
           className="mt-3 min-h-12 w-full rounded-full border border-copper text-base text-copper disabled:opacity-50"
         >
-          Practice on the desk
+          {t.practiceDesk}
         </button>
-        <p className="mt-2 text-sm leading-relaxed text-mute">This practice stays in your voice memory. It is not a telephone call.</p>
+        <p className="mt-2 text-sm leading-relaxed text-mute">{t.practiceStays}</p>
       </div>
     </div>
   );

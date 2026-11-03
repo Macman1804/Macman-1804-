@@ -1,3 +1,5 @@
+import { localeOf, parseLang, type Lang } from "../i18n/language.ts";
+
 export type MarketCoin = "bitcoin" | "ethereum" | "solana" | "ripple" | "cardano";
 
 const COINS: { id: MarketCoin; pattern: RegExp; name: string; page: string }[] = [
@@ -13,12 +15,12 @@ export function marketCoin(query: string): MarketCoin | null {
   return COINS.find((coin) => coin.pattern.test(query))?.id ?? null;
 }
 
-function money(usd: number): string {
-  return usd.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
+function money(usd: number, lang: Lang): string {
+  return usd.toLocaleString(localeOf(lang), { style: "currency", currency: "USD", maximumFractionDigits: 2 });
 }
 
-function utcClock(unixSeconds: number): string {
-  return new Intl.DateTimeFormat("en-US", {
+function utcClock(unixSeconds: number, lang: Lang): string {
+  return new Intl.DateTimeFormat(localeOf(lang), {
     hour: "numeric",
     minute: "2-digit",
     timeZone: "UTC",
@@ -31,7 +33,9 @@ export function presentMarketFeed(
   coin: MarketCoin,
   payload: unknown,
   now = Date.now(),
+  language: Lang = "en",
 ): { ok: true; body: string; sources: { url: string }[] } | { ok: false } {
+  const lang = parseLang(language);
   const known = COINS.find((item) => item.id === coin);
   if (!known || !payload || typeof payload !== "object") return { ok: false };
   const row = (payload as Record<string, unknown>)[coin];
@@ -39,11 +43,16 @@ export function presentMarketFeed(
   const usd = (row as { usd?: unknown }).usd;
   const updated = (row as { last_updated_at?: unknown }).last_updated_at;
   if (typeof usd !== "number" || !Number.isFinite(usd) || usd <= 0) return { ok: false };
-  const price = `CoinGecko lists ${known.name} at ${money(usd)}.`;
-  const notes = ["This is not a live exchange quote."];
+  const price =
+    lang === "es"
+      ? `CoinGecko indica ${known.name} en ${money(usd, lang)}.`
+      : `CoinGecko lists ${known.name} at ${money(usd, lang)}.`;
+  const notes = [lang === "es" ? "Esto no es una cotización de un mercado en vivo." : "This is not a live exchange quote."];
   if (typeof updated === "number" && Number.isFinite(updated) && updated > 0) {
-    notes.unshift(`Updated ${utcClock(updated)}.`);
-    if (now / 1000 - updated > 86_400) notes.unshift("That update is more than a day old.");
+    notes.unshift(lang === "es" ? `Actualizado ${utcClock(updated, lang)}.` : `Updated ${utcClock(updated, lang)}.`);
+    if (now / 1000 - updated > 86_400) {
+      notes.unshift(lang === "es" ? "Esa actualización tiene más de un día." : "That update is more than a day old.");
+    }
   }
   return {
     ok: true,

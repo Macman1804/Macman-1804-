@@ -19,6 +19,7 @@ import {
 import { pickRelevant, type PastLine } from "@/lib/supabase/memory-context";
 import { voiceId } from "@/lib/voice/voices";
 import { calendarReply } from "@/lib/voice/calendar";
+import { parseLang, localeOf, type Lang } from "@/lib/i18n/language";
 import { DESK_MODEL, SEARCH_LIMIT, UNVERIFIED, needsLiveLookup, searchQuery } from "@/lib/search/live";
 import { liveSearch } from "@/lib/search/provider.server";
 import { researchReply } from "@/lib/research/provider.server";
@@ -132,22 +133,28 @@ async function answer(
   body: string,
   timeZone: string,
   subject: string | null = null,
+  language: Lang = "en",
 ) {
   const userId = scope.supabaseUserId;
   const client = scope.supabase;
   pace(userId);
   await ensureAlias(client, userId, scope.supabaseEmail);
   const memories = await listMemories(client);
-  const mailSubject = channel === "mail" ? subject || "Letter" : null;
+  const mailSubject = channel === "mail" ? subject || (language === "es" ? "Carta" : "Letter") : null;
   const line = await insertLine(client, userId, channel, "person", body, mailSubject);
   await recordUsage(client, userId, channel);
   const replySubjectLine = channel === "mail" ? replySubject(mailSubject) : null;
-  const direct = calendarReply(body, new Date(), timeZone);
+  const unverified = language === "es" ? "No pude verificar la información actual." : UNVERIFIED;
+  const limited =
+    language === "es"
+      ? "Se alcanzó el límite de búsqueda de esta cuenta. No se consultó la información actual."
+      : SEARCH_LIMIT;
+  const direct = calendarReply(body, new Date(), timeZone, language);
   if (direct) {
     const reply = await insertLine(client, userId, channel, "macman", direct, replySubjectLine);
     return { line, reply, memory: memories[0]?.content ?? null, memories };
   }
-  const researched = await researchReply(body);
+  const researched = await researchReply(body, language);
   if (researched) {
     const reply = await insertLine(client, userId, channel, "macman", researched, replySubjectLine);
     return { line, reply, memory: memories[0]?.content ?? null, memories };
@@ -155,16 +162,16 @@ async function answer(
   if (needsLiveLookup(body)) {
     const query = searchQuery(body);
     if (!query) {
-      const reply = await insertLine(client, userId, channel, "macman", UNVERIFIED, replySubjectLine);
+      const reply = await insertLine(client, userId, channel, "macman", unverified, replySubjectLine);
       return { line, reply, memory: memories[0]?.content ?? null, memories };
     }
     if (!allowSearch(userId)) {
-      const reply = await insertLine(client, userId, channel, "macman", SEARCH_LIMIT, replySubjectLine);
+      const reply = await insertLine(client, userId, channel, "macman", limited, replySubjectLine);
       return { line, reply, memory: memories[0]?.content ?? null, memories };
     }
     await recordUsage(client, userId, channel);
-    const found = await liveSearch(query);
-    const text = found.ok ? found.body : UNVERIFIED;
+    const found = await liveSearch(query, language);
+    const text = found.ok ? found.body : unverified;
     const reply = await insertLine(client, userId, channel, "macman", text, replySubjectLine);
     return { line, reply, memory: memories[0]?.content ?? null, memories };
   }
@@ -176,7 +183,7 @@ async function answer(
     .join("\n");
   let clock = "";
   try {
-    clock = new Intl.DateTimeFormat("en-US", {
+    clock = new Intl.DateTimeFormat(localeOf(language), {
       weekday: "long",
       year: "numeric",
       month: "long",
@@ -184,7 +191,7 @@ async function answer(
       timeZone: timeZone || "America/New_York",
     }).format(new Date());
   } catch {
-    clock = new Intl.DateTimeFormat("en-US", {
+    clock = new Intl.DateTimeFormat(localeOf(language), {
       weekday: "long",
       year: "numeric",
       month: "long",
@@ -202,6 +209,9 @@ async function answer(
           : "Reply in two short sentences, plain and warm. No lists, no markdown, no sign-off.",
       `Today is ${clock}. Answer a date question with that date. Never say you do not have today's date.`,
       "Use the saved memories and earlier lines for personal facts. Do not invent personal facts they did not give you.",
+      language === "es"
+        ? "Reply in Spanish unless the person's latest line is clearly English. Do not translate stored memories. Keep the prefix MEMORY: in English."
+        : "Reply in English unless the person's latest line is clearly Spanish. Do not translate stored memories. Keep the prefix MEMORY: in English.",
       "If a personal fact is not in the memories or earlier lines, say you do not have it yet.",
       "Then a final line that starts with MEMORY: and one sentence under 140 characters.",
       "That sentence is the single memory to keep, folding the saved memories with anything new.",
@@ -282,67 +292,72 @@ export const getAccountDesk = createServerFn({ method: "GET" })
     };
   });
 
-function asked(input: { body: string; timeZone?: string }, limit: number) {
+function asked(input: { body: string; timeZone?: string; language?: string }, limit: number) {
   const body = input?.body?.trim() ?? "";
   const timeZone = (input?.timeZone ?? "").trim();
   if (!body || body.length > limit) throw new Error("Write a shorter line.");
   if (timeZone && !/^[A-Za-z0-9_+\-/]{1,80}$/.test(timeZone)) throw new Error("Write a shorter line.");
-  return { body, timeZone: timeZone || "America/New_York" };
+  return { body, timeZone: timeZone || "America/New_York", language: parseLang(input?.language) };
 }
 
 export const sendDesk = createServerFn({ method: "POST" })
   .middleware(guards)
-  .validator((input: { body: string; timeZone?: string }) => asked(input, LIMITS.desk))
+  .validator((input: { body: string; timeZone?: string; language?: string }) => asked(input, LIMITS.desk))
   .handler(async ({ context, data }) =>
-    answer(context as unknown as Scope, "desk", data.body, data.timeZone),
+    answer(context as unknown as Scope, "desk", data.body, data.timeZone, null, data.language),
   );
 
 export const sendVoice = createServerFn({ method: "POST" })
   .middleware(guards)
-  .validator((input: { body: string; timeZone?: string }) => asked(input, LIMITS.voice))
+  .validator((input: { body: string; timeZone?: string; language?: string }) => asked(input, LIMITS.voice))
   .handler(async ({ context, data }) =>
-    answer(context as unknown as Scope, "voice", data.body, data.timeZone),
+    answer(context as unknown as Scope, "voice", data.body, data.timeZone, null, data.language),
   );
 
 export const saveMail = createServerFn({ method: "POST" })
   .middleware(guards)
-  .validator((input: { subject: string; body: string; timeZone?: string }) => {
+  .validator((input: { subject: string; body: string; timeZone?: string; language?: string }) => {
     const body = input?.body?.trim() ?? "";
     const subject = (input?.subject ?? "").trim().slice(0, 120);
     const timeZone = (input?.timeZone ?? "").trim();
     if (!body || body.length > LIMITS.mail) throw new Error("Keep the letter shorter.");
     if (timeZone && !/^[A-Za-z0-9_+\-/]{1,80}$/.test(timeZone)) throw new Error("Keep the letter shorter.");
-    return { subject: subject || "Letter", body, timeZone: timeZone || "America/New_York" };
+    return {
+      subject: subject || (parseLang(input?.language) === "es" ? "Carta" : "Letter"),
+      body,
+      timeZone: timeZone || "America/New_York",
+      language: parseLang(input?.language),
+    };
   })
   .handler(async ({ context, data }) =>
-    answer(context as unknown as Scope, "mail", data.body, data.timeZone, data.subject),
+    answer(context as unknown as Scope, "mail", data.body, data.timeZone, data.subject, data.language),
   );
 
 export const saveText = createServerFn({ method: "POST" })
   .middleware(guards)
-  .validator((input: { body: string; timeZone?: string }) => {
+  .validator((input: { body: string; timeZone?: string; language?: string }) => {
     const body = input?.body?.trim() ?? "";
     const timeZone = (input?.timeZone ?? "").trim();
     if (!body || body.length > LIMITS.text) throw new Error("Keep it to one short line.");
     if (timeZone && !/^[A-Za-z0-9_+\-/]{1,80}$/.test(timeZone)) throw new Error("Keep it to one short line.");
-    return { body, timeZone: timeZone || "America/New_York" };
+    return { body, timeZone: timeZone || "America/New_York", language: parseLang(input?.language) };
   })
   .handler(async ({ context, data }) =>
-    answer(context as unknown as Scope, "text", data.body, data.timeZone, null),
+    answer(context as unknown as Scope, "text", data.body, data.timeZone, null, data.language),
   );
 
 export const practiceCarrier = createServerFn({ method: "POST" })
   .middleware(guards)
-  .validator((input: { kind?: string; body?: string; timeZone?: string; simulated?: boolean; optedIn?: boolean }) => {
+  .validator((input: { kind?: string; body?: string; timeZone?: string; language?: string; simulated?: boolean; optedIn?: boolean }) => {
     if (input?.simulated !== true) throw new Error("Only a simulated line can be practiced.");
     if (input.kind !== "voice" && input.kind !== "sms") throw new Error("Unknown line.");
     if (input.kind === "sms" && input.optedIn !== true) throw new Error("Opt in before a simulated text.");
     const limit = input.kind === "sms" ? LIMITS.text : LIMITS.voice;
-    return { kind: input.kind, ...asked({ body: input.body ?? "", timeZone: input.timeZone }, limit) };
+    return { kind: input.kind, ...asked({ body: input.body ?? "", timeZone: input.timeZone, language: input.language }, limit) };
   })
   .handler(async ({ context, data }) => {
     const channel = data.kind === "sms" ? "text" : "voice";
-    const result = await answer(context as unknown as Scope, channel, data.body, data.timeZone);
+    const result = await answer(context as unknown as Scope, channel, data.body, data.timeZone, null, data.language);
     return {
       simulated: true as const,
       delivered: false as const,
@@ -360,21 +375,22 @@ const AUDIO_TYPES = new Set(["audio/webm", "audio/mp4", "audio/ogg", "audio/mpeg
 
 export const transcribeSpeech = createServerFn({ method: "POST" })
   .middleware(guards)
-  .validator((input: { audio: string; mime?: string }) => {
+  .validator((input: { audio: string; mime?: string; language?: string }) => {
     const audio = input?.audio?.trim() ?? "";
     const mime = (input?.mime ?? "audio/webm").split(";")[0].trim().toLowerCase();
     if (!AUDIO_TYPES.has(mime)) throw new Error("That recording format is not supported.");
     if (!audio || audio.length > 1_500_000) throw new Error("That recording is too long. Speak a shorter line.");
-    return { audio, mime };
+    return { audio, mime, language: parseLang(input?.language) };
   })
   .handler(async ({ data }) => {
     const apiKey = process.env.XAI_API_KEY;
-    if (!apiKey) return { ok: false as const, error: "Transcription is not available right now." };
+    const es = data.language === "es";
+    if (!apiKey) return { ok: false as const, error: es ? "La transcripción no está disponible ahora." : "Transcription is not available right now." };
     try {
       const bytes = Buffer.from(data.audio, "base64");
       const ext = data.mime.includes("mp4") || data.mime.includes("m4a") ? "m4a" : data.mime.includes("ogg") ? "ogg" : data.mime.includes("wav") ? "wav" : "webm";
       const form = new FormData();
-      form.append("language", "en");
+      form.append("language", data.language);
       form.append("file", new File([bytes], `line.${ext}`, { type: data.mime }));
       const res = await fetch("https://api.x.ai/v1/stt", {
         method: "POST",
@@ -382,29 +398,30 @@ export const transcribeSpeech = createServerFn({ method: "POST" })
         signal: AbortSignal.timeout(25000),
         body: form,
       });
-      if (!res.ok) return { ok: false as const, error: "Transcription failed. Speak the line again." };
+      if (!res.ok) return { ok: false as const, error: es ? "La transcripción falló. Di la línea otra vez." : "Transcription failed. Speak the line again." };
       const body = (await res.json()) as { text?: string };
       const text = body.text?.trim() ?? "";
-      if (!text) return { ok: false as const, error: "No words were recognized. Speak a little closer and try again." };
+      if (!text) return { ok: false as const, error: es ? "No se reconocieron palabras. Habla un poco más cerca e inténtalo otra vez." : "No words were recognized. Speak a little closer and try again." };
       return { ok: true as const, text };
     } catch {
-      return { ok: false as const, error: "Transcription failed. Speak the line again." };
+      return { ok: false as const, error: es ? "La transcripción falló. Di la línea otra vez." : "Transcription failed. Speak the line again." };
     }
   });
 
 export const hearLine = createServerFn({ method: "POST" })
   .middleware(guards)
-  .validator((input: { lineId: string; voiceId?: string }) => {
+  .validator((input: { lineId: string; voiceId?: string; language?: string }) => {
     const lineId = input?.lineId?.trim() ?? "";
     if (!lineId || lineId.length > 80) throw new Error("Nothing to hear.");
-    return { lineId, voiceId: voiceId(input?.voiceId) };
+    return { lineId, voiceId: voiceId(input?.voiceId), language: parseLang(input?.language) };
   })
   .handler(async ({ context, data }) => {
     const scope = context as unknown as Scope;
     const text = await readVoiceReply(scope.supabase, scope.supabaseUserId, data.lineId);
-    if (!text) return { ok: false as const, error: "Nothing to hear." };
+    if (!text) return { ok: false as const, error: data.language === "es" ? "No hay nada que escuchar." : "Nothing to hear." };
     const apiKey = process.env.XAI_API_KEY;
-    if (!apiKey) return { ok: false as const, error: "Voice is not available right now." };
+    const quiet = data.language === "es" ? "La voz está en silencio ahora." : "The voice is quiet right now.";
+    if (!apiKey) return { ok: false as const, error: data.language === "es" ? "La voz no está disponible ahora." : "Voice is not available right now." };
     try {
       const res = await fetch("https://api.x.ai/v1/tts", {
         method: "POST",
@@ -413,18 +430,18 @@ export const hearLine = createServerFn({ method: "POST" })
           Authorization: `Bearer ${apiKey}`,
         },
         signal: AbortSignal.timeout(25000),
-        body: JSON.stringify({ text, voice_id: data.voiceId, language: "en" }),
+        body: JSON.stringify({ text, voice_id: data.voiceId, language: data.language === "es" ? "es-ES" : "en" }),
       });
-      if (!res.ok) return { ok: false as const, error: "The voice is quiet right now." };
+      if (!res.ok) return { ok: false as const, error: quiet };
       const ctype = res.headers.get("content-type") ?? "";
       if (ctype.includes("application/json")) {
         const json = (await res.json()) as { url?: string };
         if (json.url) return { ok: true as const, url: json.url };
-        return { ok: false as const, error: "The voice is quiet right now." };
+        return { ok: false as const, error: quiet };
       }
       const audio = Buffer.from(await res.arrayBuffer()).toString("base64");
       return { ok: true as const, audio };
     } catch {
-      return { ok: false as const, error: "The voice is quiet right now." };
+      return { ok: false as const, error: quiet };
     }
   });

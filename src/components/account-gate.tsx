@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { browserSupabase } from "@/lib/supabase/browser";
+import { LanguageSwitch, useI18n } from "@/lib/i18n/provider";
 import { publicError } from "@/lib/security/public-error";
 
 export function useMacmanSession() {
@@ -38,17 +39,32 @@ export function useMacmanSession() {
 }
 
 export function AccountGate({ children }: { children: ReactNode }) {
+  const { t } = useI18n();
   const account = useMacmanSession();
   if (!account.configured) {
+    return <p className="px-5 py-10 text-sm leading-relaxed text-mute">{t.notConfigured}</p>;
+  }
+  if (!account.ready) return <p className="px-5 py-10 text-sm text-mute">{t.openingAccount}</p>;
+  if (account.recovery) {
     return (
-      <p className="px-5 py-10 text-sm leading-relaxed text-mute">
-        Supabase is not configured for this build.
-      </p>
+      <div>
+        <div className="flex justify-end px-5 pt-4">
+          <LanguageSwitch />
+        </div>
+        <NewPassword onDone={account.finishRecovery} />
+      </div>
     );
   }
-  if (!account.ready) return <p className="px-5 py-10 text-sm text-mute">Opening your account…</p>;
-  if (account.recovery) return <NewPassword onDone={account.finishRecovery} />;
-  if (!account.session) return <AccountPanel />;
+  if (!account.session) {
+    return (
+      <div>
+        <div className="flex justify-end px-5 pt-4">
+          <LanguageSwitch />
+        </div>
+        <AccountPanel />
+      </div>
+    );
+  }
   return children;
 }
 
@@ -59,6 +75,7 @@ export function signOutMacman() {
 }
 
 export function AccountPanel() {
+  const { t, lang } = useI18n();
   const [mode, setMode] = useState<"in" | "up" | "forgot">("in");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -72,7 +89,7 @@ export function AccountPanel() {
     if (!client || busy) return;
     const address = email.trim();
     if (mode === "up" && password !== confirm) {
-      setNote("Those passwords do not match.");
+      setNote(t.mismatch);
       return;
     }
     setBusy(true);
@@ -82,39 +99,34 @@ export function AccountPanel() {
         redirectTo: `${window.location.origin}/`,
       });
       setBusy(false);
-      setNote(
-        result.error?.message ??
-          "Check that inbox for a recovery link. The account stays locked until you open it.",
-      );
+      setNote(result.error ? publicError(result.error.message, t.couldNot, lang) : t.recoverySent);
       return;
     }
     const result =
       mode === "up"
-        ? await client.auth.signUp({ email: address, password })
+        ? await client.auth.signUp({ email: address, password, options: { data: { language: lang } } })
         : await client.auth.signInWithPassword({ email: address, password });
     setBusy(false);
     if (result.error) {
-      setNote(publicError(result.error.message, "That could not be completed."));
+      setNote(publicError(result.error.message, t.couldNot, lang));
       return;
     }
     if (mode === "up" && !result.data.session) {
-      setNote("Account created. Confirm the email, then sign in.");
+      setNote(t.confirmEmail);
     }
   }
 
   const title =
-    mode === "up" ? "Create the desk." : mode === "forgot" ? "Recover the desk." : "Open the desk.";
+    mode === "up" ? t.createDesk : mode === "forgot" ? t.recoverDesk : t.openDesk;
 
   return (
-    <form onSubmit={submit} className="flex flex-col">
+    <form onSubmit={submit} className="flex flex-col px-5 pt-4 pb-10">
       <h1 className="font-serif text-4xl leading-none text-cream">{title}</h1>
       <p className="mt-4 max-w-md text-base leading-relaxed text-cream/90">
-        {mode === "forgot"
-          ? "A recovery link goes to this inbox. Email confirmation stays on."
-          : "Email and password stay with Supabase. A new account must confirm its email before the desk opens."}
+        {mode === "forgot" ? t.forgotHelp : t.signHelp}
       </p>
       <label className="mt-8 text-sm text-mute" htmlFor="macman-email">
-        Email
+        {t.email}
       </label>
       <input
         id="macman-email"
@@ -128,7 +140,7 @@ export function AccountPanel() {
       {mode !== "forgot" ? (
         <>
           <label className="mt-4 text-sm text-mute" htmlFor="macman-password">
-            Password
+            {t.password}
           </label>
           <input
             id="macman-password"
@@ -145,7 +157,7 @@ export function AccountPanel() {
       {mode === "up" ? (
         <>
           <label className="mt-4 text-sm text-mute" htmlFor="macman-confirm">
-            Confirm password
+            {t.confirmPassword}
           </label>
           <input
             id="macman-confirm"
@@ -165,7 +177,7 @@ export function AccountPanel() {
         disabled={busy}
         className="mt-6 min-h-12 rounded-full bg-copper text-base font-medium text-ink disabled:opacity-50"
       >
-        {busy ? "Working…" : mode === "up" ? "Create account" : mode === "forgot" ? "Send recovery link" : "Sign in"}
+        {busy ? t.working : mode === "up" ? t.createAccount : mode === "forgot" ? t.sendRecovery : t.signIn}
       </button>
       <div className="mt-3 flex flex-col items-start gap-1">
         {mode === "in" ? (
@@ -177,7 +189,7 @@ export function AccountPanel() {
               setNote(null);
             }}
           >
-            Forgot password
+            {t.forgotPassword}
           </button>
         ) : null}
         <button
@@ -189,7 +201,7 @@ export function AccountPanel() {
             setConfirm("");
           }}
         >
-          {mode === "in" ? "Create an account" : "Back to sign in"}
+          {mode === "in" ? t.createAnAccount : t.backToSignIn}
         </button>
       </div>
     </form>
@@ -197,6 +209,7 @@ export function AccountPanel() {
 }
 
 export function NewPassword({ onDone }: { onDone: () => void }) {
+  const { t, lang } = useI18n();
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
@@ -207,7 +220,7 @@ export function NewPassword({ onDone }: { onDone: () => void }) {
     const client = browserSupabase();
     if (!client || busy) return;
     if (password !== confirm) {
-      setNote("Those passwords do not match.");
+      setNote(t.mismatch);
       return;
     }
     setBusy(true);
@@ -215,7 +228,7 @@ export function NewPassword({ onDone }: { onDone: () => void }) {
     const result = await client.auth.updateUser({ password });
     setBusy(false);
     if (result.error) {
-      setNote(publicError(result.error.message, "The password could not be changed."));
+      setNote(publicError(result.error.message, t.passwordFailed, lang));
       return;
     }
     onDone();
@@ -223,12 +236,10 @@ export function NewPassword({ onDone }: { onDone: () => void }) {
 
   return (
     <form onSubmit={submit} className="flex flex-col px-5 pt-8 pb-10">
-      <h1 className="font-serif text-4xl leading-none text-cream">Choose a new password.</h1>
-      <p className="mt-4 max-w-md text-base leading-relaxed text-cream/90">
-        This replaces the password for the confirmed account. The desk opens after it is saved.
-      </p>
+      <h1 className="font-serif text-4xl leading-none text-cream">{t.newPasswordTitle}</h1>
+      <p className="mt-4 max-w-md text-base leading-relaxed text-cream/90">{t.newPasswordHelp}</p>
       <label className="mt-8 text-sm text-mute" htmlFor="macman-new-password">
-        New password
+        {t.newPassword}
       </label>
       <input
         id="macman-new-password"
@@ -241,7 +252,7 @@ export function NewPassword({ onDone }: { onDone: () => void }) {
         className="mt-2 min-h-12 rounded-2xl border border-edge bg-card px-4 text-base text-cream outline-none"
       />
       <label className="mt-4 text-sm text-mute" htmlFor="macman-new-confirm">
-        Confirm password
+        {t.confirmPassword}
       </label>
       <input
         id="macman-new-confirm"
@@ -259,7 +270,7 @@ export function NewPassword({ onDone }: { onDone: () => void }) {
         disabled={busy}
         className="mt-6 min-h-12 rounded-full bg-copper text-base font-medium text-ink disabled:opacity-50"
       >
-        {busy ? "Working…" : "Save password"}
+        {busy ? t.working : t.savePassword}
       </button>
     </form>
   );

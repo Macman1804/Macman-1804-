@@ -1,3 +1,5 @@
+import { localeOf, parseLang, type Lang } from "../i18n/language.ts";
+
 export type LeagueId = "nfl" | "nba" | "mlb" | "nhl" | "ncaaf" | "ncaab";
 
 const LEAGUES: Record<LeagueId, { sport: string; league: string; label: string; page: string }> = {
@@ -25,7 +27,7 @@ export function leaguePath(id: LeagueId): string {
 }
 
 export function askedLeague(text: string): LeagueId | null {
-  if (!/\b(score|scores|game|games|board|schedule|playing|matchup|who won)\b/i.test(text)) return null;
+  if (!/\b(score|scores|game|games|board|schedule|playing|matchup|who won|marcador|resultado|partido|partidos|juegos|qui[eé]n gan[oó])\b/i.test(text)) return null;
   if (/\b(college football|ncaaf)\b/i.test(text)) return "ncaaf";
   if (/\b(college basketball|ncaab)\b/i.test(text)) return "ncaab";
   if (/\bnfl\b/i.test(text)) return "nfl";
@@ -50,12 +52,19 @@ function side(value: unknown): Side | null {
   };
 }
 
-export function presentBoard(id: LeagueId, payload: unknown, fetchedAt: Date): string | null {
+export function presentBoard(id: LeagueId, payload: unknown, fetchedAt: Date, language: Lang = "en"): string | null {
+  const lang = parseLang(language);
   if (!payload || typeof payload !== "object") return null;
   const events = (payload as { events?: unknown[] }).events;
   if (!Array.isArray(events)) return null;
   const league = LEAGUES[id];
-  const when = new Intl.DateTimeFormat("en-US", {
+  const name =
+    lang === "es" && id === "ncaaf"
+      ? "Fútbol americano universitario"
+      : lang === "es" && id === "ncaab"
+        ? "Baloncesto universitario"
+        : league.label;
+  const when = new Intl.DateTimeFormat(localeOf(lang), {
     hour: "numeric",
     minute: "2-digit",
     timeZone: "UTC",
@@ -69,20 +78,21 @@ export function presentBoard(id: LeagueId, payload: unknown, fetchedAt: Date): s
     const teams = (row.competitors ?? []).map(side).filter((item): item is Side => Boolean(item));
     if (teams.length < 2) return "";
     const state = row.status?.type?.state;
-    const label = state === "in" ? "In progress" : state === "post" ? "Final" : "Scheduled";
-    const detail = typeof row.status?.type?.description === "string" ? row.status.type.description : label;
+    const label = state === "in" ? (lang === "es" ? "En curso" : "In progress") : state === "post" ? (lang === "es" ? "Final" : "Final") : lang === "es" ? "Programado" : "Scheduled";
+    const known = state === "in" || state === "post" || state === "pre";
+    const detail = known ? label : typeof row.status?.type?.description === "string" ? row.status.type.description : label;
     const shown = teams
       .map((team) => `${team.name} ${team.score}${team.record ? ` (${team.record})` : ""}`)
       .join(", ");
     return `${shown}. ${detail}.`;
   }).filter(Boolean);
-  const body = lines.length ? lines.join(" ") : "ESPN did not list a game on this board.";
+  const body = lines.length ? lines.join(" ") : lang === "es" ? "ESPN no listó un partido en este marcador." : "ESPN did not list a game on this board.";
   return [
-    `${league.label} from ESPN. Retrieved ${when}.`,
+    lang === "es" ? `${name} desde ESPN. Consultado ${when}.` : `${name} from ESPN. Retrieved ${when}.`,
     body,
-    "Injury reports, confirmed lineups, and sportsbook odds are not on this board.",
-    "A scheduled game is not a live result. This is not a wager, and it is not a guarantee.",
-    "You must be of legal age where you live before using any betting math.",
+    lang === "es"
+      ? "Este marcador no incluye lesiones, alineaciones confirmadas ni cuotas. Un partido programado no es un resultado en vivo. Esto no es una apuesta ni una garantía. Debes tener la edad legal donde vives antes de usar cualquier cálculo de apuesta."
+      : "Injury reports, confirmed lineups, and sportsbook odds are not on this board. A scheduled game is not a live result. This is not a wager, and it is not a guarantee. You must be of legal age where you live before using any betting math.",
     `\n\nSources\n${league.page}`,
   ].join(" ");
 }
