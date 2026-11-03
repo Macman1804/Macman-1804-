@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { browserSupabase } from "@/lib/supabase/browser";
+import { publicError } from "@/lib/security/public-error";
 
 export function useMacmanSession() {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
@@ -93,7 +94,7 @@ export function AccountPanel() {
         : await client.auth.signInWithPassword({ email: address, password });
     setBusy(false);
     if (result.error) {
-      setNote(result.error.message);
+      setNote(publicError(result.error.message, "That could not be completed."));
       return;
     }
     if (mode === "up" && !result.data.session) {
@@ -183,12 +184,12 @@ export function AccountPanel() {
           type="button"
           className="min-h-11 text-sm text-mute"
           onClick={() => {
-            setMode(mode === "up" ? "in" : "up");
+            setMode(mode === "in" ? "up" : "in");
             setNote(null);
             setConfirm("");
           }}
         >
-          {mode === "up" ? "I already have an account" : "Create an account"}
+          {mode === "in" ? "Create an account" : "Back to sign in"}
         </button>
       </div>
     </form>
@@ -214,7 +215,7 @@ export function NewPassword({ onDone }: { onDone: () => void }) {
     const result = await client.auth.updateUser({ password });
     setBusy(false);
     if (result.error) {
-      setNote(result.error.message);
+      setNote(publicError(result.error.message, "The password could not be changed."));
       return;
     }
     onDone();

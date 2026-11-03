@@ -5,8 +5,8 @@ import { appChannel, DB_CHANNEL, packBody, unpackBody } from "@/lib/supabase/cha
 
 export { DB_CHANNEL, packBody, unpackBody };
 
-function fail(error: { message: string } | null, fallback: string): never {
-  throw new Error(error?.message || fallback);
+function fail(_error: { message: string } | null, fallback: string): never {
+  throw new Error(fallback);
 }
 
 export async function ensureAlias(

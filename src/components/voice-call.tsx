@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Mic, MicOff, PhoneOff } from "lucide-react";
 import { transcribeSpeech } from "@/lib/desk.functions";
+import { publicError } from "@/lib/security/public-error";
 import { SETUP_CHECKLIST } from "@/lib/telephony/exchange";
 import { reduceCall, type CallPhase } from "@/lib/voice/call-machine";
 import { MIN_BYTES, nextUtterance } from "@/lib/voice/utterance";
@@ -203,7 +204,12 @@ export function VoiceCall({
         apply({ type: "spoken" });
       }
     } catch (error) {
-      setNote(error instanceof Error && error.message ? error.message : "The desk could not answer.");
+      const dropped = typeof navigator !== "undefined" && navigator.onLine === false;
+      setNote(
+        dropped
+          ? "The connection dropped. Try that line again."
+          : publicError(error instanceof Error ? error.message : "", "The desk could not answer."),
+      );
       if (!live.current) setPhase("idle");
       else if (muted.current) setPhase("muted");
       else setPhase("listening");

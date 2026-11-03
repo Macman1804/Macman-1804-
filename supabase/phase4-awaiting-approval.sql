@@ -29,6 +29,9 @@ create table if not exists public.audit_events (
 -- The sealed mailbox secret is not granted to the browser role.
 -- Authenticated users cannot read or write mailbox_links until a later approved server path exists.
 
+create index if not exists audit_events_owner_idx
+  on public.audit_events (subscriber_id, created_at desc);
+
 alter table public.mailbox_links enable row level security;
 alter table public.sms_consent enable row level security;
 alter table public.audit_events enable row level security;

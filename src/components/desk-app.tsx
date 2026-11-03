@@ -17,6 +17,7 @@ import {
   sendVoice,
 } from "@/lib/desk.functions";
 import type { Channel, DeskHome, Line, SavedMemory } from "@/lib/desk-types";
+import { publicError } from "@/lib/security/public-error";
 import type { VoiceId } from "@/lib/voice/voices";
 
 type View = "home" | "account" | Channel;
@@ -29,8 +30,14 @@ const CARDS: { id: Channel; title: string; hint: string; icon: typeof Pencil }[]
 ];
 
 function errorText(error: unknown): string {
-  if (error instanceof Error && error.message) return error.message;
-  return "The desk could not keep that.";
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    return "The connection dropped. Try that line again.";
+  }
+  const message = error instanceof Error ? error.message : "";
+  if (/failed to fetch|network|load failed/i.test(message)) {
+    return "The connection dropped. Try that line again.";
+  }
+  return publicError(message, "The desk could not keep that.");
 }
 
 function localZone(): string {

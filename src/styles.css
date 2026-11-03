@@ -26,5 +26,18 @@
     background: var(--color-ink);
     color: var(--color-cream);
     font-family: var(--font-sans);
+    overflow-x: hidden;
+  }
+
+  body {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    touch-action: manipulation;
   }
 }
