@@ -5,6 +5,7 @@ import { publicError } from "@/lib/security/public-error";
 import { reduceCall, type CallPhase } from "@/lib/voice/call-machine";
 import { MIN_BYTES, nextUtterance } from "@/lib/voice/utterance";
 import { VOICES, voiceId, type VoiceId } from "@/lib/voice/voices";
+import { futureGrokCall } from "@/lib/telephony/line";
 import { useI18n } from "@/lib/i18n/provider";
 
 function recorderMime(): string {
@@ -386,7 +387,23 @@ export function VoiceCall({
       </form>
       {note ? <p className="mt-3 text-sm leading-relaxed text-copper">{note}</p> : null}
       <div className="mt-4 rounded-2xl border border-edge bg-card px-4 py-3">
-        <p className="text-xs font-medium tracking-widest text-copper uppercase">{t.telephone}</p>
+        <p className="text-xs font-medium tracking-widest text-copper uppercase">{t.callTestTitle}</p>
+        <p className="mt-2 text-sm leading-relaxed text-mute">{t.callTestDetail}</p>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            const testCall = futureGrokCall();
+            if (testCall.dialed || testCall.number !== null || testCall.live !== "off") return;
+            setHeard(t.grokTestScript);
+            void onPractice(t.grokTestScript);
+          }}
+          className="mt-3 min-h-12 w-full rounded-full bg-copper text-base font-medium text-ink disabled:opacity-50"
+        >
+          {t.startGrokTest}
+        </button>
+        <p className="mt-2 text-sm leading-relaxed text-mute">{t.callTestStays}</p>
+        <p className="mt-4 text-xs font-medium tracking-widest text-copper uppercase">{t.telephone}</p>
         <p className="mt-2 text-sm leading-relaxed text-mute">{t.phoneOffDetail}</p>
         <ol className="mt-3 flex flex-col gap-2">
           {(
