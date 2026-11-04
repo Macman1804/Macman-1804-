@@ -65,7 +65,7 @@ export function AccountDesk({ onBack }: { onBack: () => void }) {
                 setTwilioNote(null);
                 void checkTwilioAccount()
                   .then((result) => {
-                    if (result.ok) setTwilioNote(t.twilioOk);
+                    if (result.ok) setTwilioNote(t.twilioOk.replace("{status}", result.status ?? "unknown"));
                     else if (result.reason === "forbidden" || result.reason === "pace") setTwilioNote(t.twilioForbidden);
                     else if (result.reason === "missing") setTwilioNote(t.twilioMissing);
                     else if (result.reason === "refused") setTwilioNote(t.twilioRefused);
