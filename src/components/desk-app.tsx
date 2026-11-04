@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Languages, Mail, MessageSquare, Mic, Pencil, Volume2 } from "lucide-react";
 import { AccountGate, signOutMacman, useMacmanSession } from "@/components/account-gate";
-import { AccountDesk } from "@/components/account-desk";
+import { AccountDesk, TwilioCheck } from "@/components/account-desk";
 import { LanguageSwitch, useI18n } from "@/lib/i18n/provider";
 import type { Copy } from "@/lib/i18n/catalog";
 import type { Lang } from "@/lib/i18n/language";
@@ -215,6 +215,9 @@ function Home({
         ) : null}
         {t.notDelivered}
       </p>
+      <div className="mt-6">
+        <TwilioCheck />
+      </div>
       {memories.length > 0 ? (
         <div className="mt-6 flex flex-col gap-3">
           <p className="text-xs font-medium tracking-widest text-copper uppercase">{t.savedMemories}</p>
