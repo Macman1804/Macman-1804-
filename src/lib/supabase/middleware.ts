@@ -22,6 +22,7 @@ export const supabaseMiddleware = createMiddleware({ type: "function" })
       context: {
         supabaseUserId: user.id,
         supabaseEmail: user.email ?? null,
+        supabaseAccessToken: token,
         supabase: userSupabase(token),
       },
     });

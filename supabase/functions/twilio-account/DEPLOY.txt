@@ -1,0 +1,27 @@
+Deploy the Twilio account check
+
+This does not buy a number, send a text, or place a call.
+Do not paste any secret into chat, the code, or GitHub.
+
+On a phone
+
+1. Open Chrome and go to:
+   https://supabase.com/dashboard/project/bexuyxicdxtviapavdwi/functions
+2. Sign in to Supabase.
+3. If the page is cramped, open the Chrome menu and turn on Desktop site.
+4. Create a function named twilio-account.
+5. Replace its code with the full contents of index.ts in this folder.
+6. Deploy that function.
+7. Open Edge Function secrets for the same project:
+   https://supabase.com/dashboard/project/bexuyxicdxtviapavdwi/functions/secrets
+8. Add these secrets. Type the values there. Do not send them to anyone.
+   TWILIO_ACCOUNT_SID
+   TWILIO_API_KEY_SID
+   TWILIO_API_KEY_SECRET
+   MACMAN_ADMIN_EMAILS
+9. MACMAN_ADMIN_EMAILS is the email you use to sign in to MACMAN.
+   Only that email can run the check. A subscriber with another email cannot.
+10. In MACMAN, open Account and tap Check Twilio.
+
+A successful check says Twilio answered and that nothing was bought or sent.
+Another account only sees that the check is not on that account.
