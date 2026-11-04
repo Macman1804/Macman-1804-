@@ -88,6 +88,26 @@ test("missing Twilio secrets do not call Twilio", async () => {
   const body = await response.json();
   assert.equal(twilio, false);
   assert.equal(body.reason, "missing");
+  assert.equal(body.detail, "sid_absent");
+});
+
+test("quotes and spaces around the account SID are ignored", async () => {
+  const response = await handleTwilioCheck(
+    new Request("https://example.com", { method: "POST", headers: { Authorization: "Bearer signed-in-admin-token-value" } }),
+    baseEnv({
+      TWILIO_ACCOUNT_SID: `" ${sid} "`,
+      TWILIO_API_KEY_SID: " SK123 ",
+      TWILIO_API_KEY_SECRET: secret,
+    }),
+    async (input) => {
+      if (String(input).endsWith("/auth/v1/user")) return new Response(JSON.stringify({ email: "owner@example.com" }), { status: 200 });
+      return new Response(JSON.stringify({ sid, status: "active" }), { status: 200 });
+    },
+  );
+  const body = await response.json();
+  assert.equal(body.authenticated, true);
+  assert.equal(body.status, "active");
+  assert.equal(JSON.stringify(body).includes(sid), false);
 });
 
 test("a refused Twilio sign-in places nothing", async () => {

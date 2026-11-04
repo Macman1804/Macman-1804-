@@ -6,6 +6,7 @@ export type TwilioEdgeBody = {
   ok: boolean;
   authenticated: boolean;
   reason?: "forbidden" | "missing" | "refused" | "failed";
+  detail?: "sid_absent" | "sid_shape" | "key_absent" | "secret_absent";
   status?: string;
   callsPlaced: false;
   smsSent: false;
@@ -45,9 +46,24 @@ function publishableKey(raw: string | undefined): string {
   }
 }
 
+function clean(value: string): string {
+  return value.trim().replace(/^['"]+|['"]+$/g, "").replace(/\s+/g, "");
+}
+
 function accountUrl(sid: string): string | null {
   if (!/^AC[0-9a-f]{32}$/i.test(sid)) return null;
   return `https://api.twilio.com/2010-04-01/Accounts/${sid}.json`;
+}
+
+export function secretProblem(sidRaw: string, keyRaw: string, secretRaw: string): "sid_absent" | "sid_shape" | "key_absent" | "secret_absent" | null {
+  const sid = clean(sidRaw);
+  const key = clean(keyRaw);
+  const secret = clean(secretRaw);
+  if (!sidRaw.trim()) return "sid_absent";
+  if (!accountUrl(sid)) return "sid_shape";
+  if (!key) return "key_absent";
+  if (!secret) return "secret_absent";
+  return null;
 }
 
 /** Read-only account check. Secrets and account identifiers are never returned. */
@@ -74,12 +90,16 @@ export async function handleTwilioCheck(request: Request, envGet: EdgeEnv, fetch
   }
   if (!adminAllowed(email, envGet("MACMAN_ADMIN_EMAILS") ?? "")) return forbidden();
 
-  const sid = envGet("TWILIO_ACCOUNT_SID")?.trim() ?? "";
-  const key = envGet("TWILIO_API_KEY_SID")?.trim() ?? "";
-  const secret = envGet("TWILIO_API_KEY_SECRET")?.trim() ?? "";
+  const sidRaw = envGet("TWILIO_ACCOUNT_SID") ?? "";
+  const keyRaw = envGet("TWILIO_API_KEY_SID") ?? "";
+  const secretRaw = envGet("TWILIO_API_KEY_SECRET") ?? "";
+  const problem = secretProblem(sidRaw, keyRaw, secretRaw);
+  const sid = clean(sidRaw);
+  const key = clean(keyRaw);
+  const secret = clean(secretRaw);
   const url = accountUrl(sid);
-  if (!url || !key || !secret) {
-    return json({ ok: false, authenticated: false, reason: "missing", ...CLOSED }, 403);
+  if (problem || !url) {
+    return json({ ok: false, authenticated: false, reason: "missing", detail: problem ?? "sid_shape", ...CLOSED }, 403);
   }
   try {
     const response = await fetchImpl(url, {

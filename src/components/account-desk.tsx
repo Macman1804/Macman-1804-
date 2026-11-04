@@ -21,6 +21,10 @@ export function TwilioCheck() {
           void checkTwilioAccount()
             .then((result) => {
               if (result.ok) setTwilioNote(t.twilioOk.replace("{status}", result.status ?? "unknown"));
+              else if (result.detail === "sid_absent") setTwilioNote(t.twilioSidMissing);
+              else if (result.detail === "sid_shape") setTwilioNote(t.twilioSidShape);
+              else if (result.detail === "key_absent") setTwilioNote(t.twilioKeyMissing);
+              else if (result.detail === "secret_absent") setTwilioNote(t.twilioSecretMissing);
               else if (result.reason === "forbidden" || result.reason === "pace") setTwilioNote(t.twilioForbidden);
               else if (result.reason === "missing") setTwilioNote(t.twilioMissing);
               else if (result.reason === "refused") setTwilioNote(t.twilioRefused);

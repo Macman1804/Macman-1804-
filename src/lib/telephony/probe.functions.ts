@@ -12,6 +12,7 @@ type EdgeCheck = {
   ok: boolean;
   authenticated: boolean;
   reason?: "forbidden" | "missing" | "refused" | "failed" | "pace";
+  detail?: "sid_absent" | "sid_shape" | "key_absent" | "secret_absent";
   status?: string;
   callsPlaced: false;
   smsSent: false;
@@ -20,8 +21,8 @@ type EdgeCheck = {
 
 const CLOSED = { callsPlaced: false as const, smsSent: false as const, numbersPurchased: false as const };
 
-function privateResult(reason: EdgeCheck["reason"]): EdgeCheck {
-  return { ok: false, authenticated: false, reason, ...CLOSED };
+function privateResult(reason: EdgeCheck["reason"], detail?: EdgeCheck["detail"]): EdgeCheck {
+  return { ok: false, authenticated: false, reason, ...(detail ? { detail } : {}), ...CLOSED };
 }
 
 function readEdgeBody(value: unknown): EdgeCheck {
@@ -30,7 +31,12 @@ function readEdgeBody(value: unknown): EdgeCheck {
   if (body.ok !== true) {
     const reason = body.reason;
     if (reason === "forbidden" || reason === "missing" || reason === "refused" || reason === "failed") {
-      return privateResult(reason);
+      const detail = body.detail;
+      const known =
+        detail === "sid_absent" || detail === "sid_shape" || detail === "key_absent" || detail === "secret_absent"
+          ? detail
+          : undefined;
+      return privateResult(reason, known);
     }
     return privateResult("failed");
   }
