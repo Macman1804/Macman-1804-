@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getAccountDesk } from "@/lib/desk.functions";
+import { checkTwilioAccount } from "@/lib/telephony/probe.functions";
 import { LanguageSwitch, useI18n } from "@/lib/i18n/provider";
 
 type Account = Awaited<ReturnType<typeof getAccountDesk>>;
@@ -8,6 +9,8 @@ export function AccountDesk({ onBack }: { onBack: () => void }) {
   const { t } = useI18n();
   const [account, setAccount] = useState<Account | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [twilioNote, setTwilioNote] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
 
   useEffect(() => {
     let cancel = false;
@@ -54,6 +57,27 @@ export function AccountDesk({ onBack }: { onBack: () => void }) {
             <p className="text-xs tracking-widest text-copper uppercase">{t.phone}</p>
             <p className="mt-1 text-mute">{account.phone.configured ? t.phoneOn : t.phoneOff}</p>
             <p className="text-mute">{t.textsStay}</p>
+            <button
+              type="button"
+              disabled={checking}
+              onClick={() => {
+                setChecking(true);
+                setTwilioNote(null);
+                void checkTwilioAccount()
+                  .then((result) => {
+                    if (result.ok) setTwilioNote(t.twilioOk);
+                    else if (result.reason === "missing") setTwilioNote(t.twilioMissing);
+                    else if (result.reason === "refused") setTwilioNote(t.twilioRefused);
+                    else setTwilioNote(t.twilioFailed);
+                  })
+                  .catch(() => setTwilioNote(t.twilioFailed))
+                  .finally(() => setChecking(false));
+              }}
+              className="mt-3 min-h-12 rounded-full border border-copper px-4 text-sm text-copper disabled:opacity-50"
+            >
+              {checking ? t.checking : t.twilioCheck}
+            </button>
+            {twilioNote ? <p className="mt-2 text-mute">{twilioNote}</p> : null}
           </section>
           <section>
             <p className="text-xs tracking-widest text-copper uppercase">{t.usage}</p>
